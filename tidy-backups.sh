@@ -3,9 +3,9 @@
 # tidy-backups.sh — sweep scattered "<file>.bak.<timestamp>" config backups out of your home
 # directory into one tidy, self-pruning location.
 #
-# The setup scripts (30-shell.sh, git-setup.sh, github-profiles.sh, link-windows-folders.sh)
-# back up a file before editing it by copying it to "<file>.bak.<timestamp>" — which piles up
-# in ~. This moves all of those into:
+# Older script versions backed a file up before editing by copying it to
+# "<file>.bak.<timestamp>" next to the original — which piled up in ~. Current
+# scripts already back up centrally; this sweeps any legacy strays into:
 #       ${XDG_STATE_HOME:-~/.local/state}/wsl2-dev/backups/
 # renamed to "<file>.<timestamp>.bak", keeps only the newest N of each, and deletes the rest.
 #
@@ -109,5 +109,5 @@ if [ "$PURGE" -eq 1 ]; then
 else
   ok "moved $moved file(s) into $(tilde "$BACKDIR")$([ "$pruned" -gt 0 ] && echo ", pruned $pruned older one(s)")"
   echo "  ${D}Browse them:  ls -t $(tilde "$BACKDIR")${Z}"
-  warn "the setup scripts still write new backups to ~ until they're switched to this location (I can do that next)."
+  info "current setup scripts back up straight to this location — strays only come from pre-migration runs."
 fi

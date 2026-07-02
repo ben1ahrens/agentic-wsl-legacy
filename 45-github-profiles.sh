@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# github-profiles.sh — Per-account GitHub auth + SSH key upload + directory-aware shell hook.
+# 45-github-profiles.sh — Per-account GitHub auth + SSH key upload + directory-aware shell hook.
 #
 # What it does:
 #   1. For each profile (detected from ~/.ssh/config, or asked), PAUSES so you can switch the
@@ -17,10 +17,10 @@
 # instead OPENS a pre-filled token page per profile so you just click Generate and paste it back.
 #
 # Usage:
-#   ./github-profiles.sh                # browser login + uploads + install hook   (recommended)
-#   ./github-profiles.sh --auth pat     # paste-a-PAT instead of browser login
-#   ./github-profiles.sh --hook-only    # only (re)install the zsh directory hook
-#   ./github-profiles.sh --dry-run      # show what it would do; no gh calls, no file changes
+#   ./45-github-profiles.sh                # browser login + uploads + install hook   (recommended)
+#   ./45-github-profiles.sh --auth pat     # paste-a-PAT instead of browser login
+#   ./45-github-profiles.sh --hook-only    # only (re)install the zsh directory hook
+#   ./45-github-profiles.sh --dry-run      # show what it would do; no gh calls, no file changes
 #
 set -uo pipefail
 
@@ -41,14 +41,33 @@ hdr(){ printf '\n%s== %s ==%s\n' "$B" "$1" "$Z"; }
 ok(){ printf '  %s✓%s %s\n' "$G" "$Z" "$1"; }
 warn(){ printf '  %s!%s %s\n' "$Y" "$Z" "$1"; }
 info(){ printf '  %s·%s %s\n' "$D" "$Z" "$1"; }
+backup_file(){  # copy $1 into ~/.local/state/wsl2-dev/backups (newest 5 kept); honours --dry-run
+  local src="$1" base dir f i=0; [ -f "$src" ] || return 0
+  base="$(basename "$src")"; dir="${XDG_STATE_HOME:-$HOME/.local/state}/wsl2-dev/backups"
+  if [ "${DRY:-0}" -eq 1 ]; then printf '  %s· would back up %s%s\n' "${D:-}" "${src/#$HOME/\~}" "${Z:-}"; return 0; fi
+  mkdir -p "$dir" && cp -p "$src" "$dir/${base}.$(date +%Y%m%d-%H%M%S).bak" \
+    && printf '  %s✓%s backed up %s → %s/\n' "${G:-}" "${Z:-}" "${src/#$HOME/\~}" "${dir/#$HOME/\~}"
+  while IFS= read -r f; do i=$((i+1)); [ "$i" -gt 5 ] && rm -f "$f"; done < <(printf '%s\n' "$dir/${base}".*.bak | sort -r)
+}
 q(){ printf '%s?%s %s\n' "$C" "$Z" "$1"; }
 ask(){ local __v="$1" __p="$2" __d="${3:-}" __i; if [ -n "$__d" ]; then read -r -p "  $__p [$__d]: " __i; else read -r -p "  $__p: " __i; fi; printf -v "$__v" '%s' "${__i:-$__d}"; }
 yesno(){ local __p="$1" __d="${2:-y}" __i __h; case "$__d" in y|Y) __h="[Y/n]";; *) __h="[y/N]";; esac; read -r -p "  $__p $__h: " __i; __i="${__i:-$__d}"; case "$__i" in y|Y|yes|YES) return 0;; *) return 1;; esac; }
 pause(){ read -r -p "  $1" _; }
 browser_open(){ if command -v wopen >/dev/null 2>&1; then wopen "$1" >/dev/null 2>&1; elif command -v explorer.exe >/dev/null 2>&1; then explorer.exe "$1" >/dev/null 2>&1; else info "open this URL: $1"; fi; }
 
-MS="# >>> gh-profiles (managed by github-profiles.sh) >>>"
-ME="# <<< gh-profiles (managed by github-profiles.sh) <<<"
+BLOCK_NAME="gh-profiles"
+MS="# >>> ${BLOCK_NAME} (managed by 45-github-profiles.sh) >>>"
+ME="# <<< ${BLOCK_NAME} (managed by 45-github-profiles.sh) <<<"
+# Name-keyed strip: replaces blocks written under older script names and stops
+# at the next '# >>> ' opener (or EOF) if the end marker is missing.
+strip_block(){ # file → stdout minus the named block
+  awk -v sp="# >>> ${BLOCK_NAME} " -v ep="# <<< ${BLOCK_NAME} " '
+    k && index($0,ep)==1       {k=0; next}
+    k && index($0,"# >>> ")==1 {k=0; print; next}
+    k                          {next}
+    index($0,sp)==1            {k=1; next}
+    {print}' "$1"
+}
 
 printf '%s%sGitHub profiles — auth, key upload & directory hook%s  %s\n' "$B" "$G" "$Z" \
   "${D}$([ "$DRY" -eq 1 ] && echo '(DRY RUN)')${Z}"
@@ -56,7 +75,7 @@ printf '%s%sGitHub profiles — auth, key upload & directory hook%s  %s\n' "$B" 
 # ---------- gh presence ----------
 HAVE_GH=0; command -v gh >/dev/null 2>&1 && HAVE_GH=1
 if [ "$HOOK_ONLY" -eq 0 ] && [ "$HAVE_GH" -eq 0 ] && [ "$DRY" -eq 0 ]; then
-  warn "gh (GitHub CLI) not found — install it first (e.g. 'brew install gh' or re-run git-setup.sh), then run this again."
+  warn "gh (GitHub CLI) not found — install it first (e.g. 'brew install gh' or re-run 40-git-setup.sh), then run this again."
   info "Continuing would only let me install the shell hook; re-run with --hook-only if that's all you want."
   exit 1
 fi
@@ -196,10 +215,11 @@ if [ "$DRY" -eq 1 ]; then
   printf '\n%s--- would write this managed block into ~/.zshrc ---%s\n%s\n' "$D" "$Z" "$BLOCK"
 else
   ZRC="$HOME/.zshrc"
-  [ -f "$ZRC" ] && cp "$ZRC" "$ZRC.bak.$(date +%Y%m%d-%H%M%S)" && info "backed up ~/.zshrc"
+  backup_file "$ZRC"
   tmp="$(mktemp)"
-  if [ -f "$ZRC" ] && grep -qF "$MS" "$ZRC"; then
-    awk -v s="$MS" -v e="$ME" 'index($0,s){k=1} !k{print} index($0,e){k=0}' "$ZRC" > "$tmp"
+  if [ -f "$ZRC" ] && grep -q "^# >>> ${BLOCK_NAME} " "$ZRC"; then
+    grep -q "^# <<< ${BLOCK_NAME} " "$ZRC" || warn "existing ${BLOCK_NAME} block had no end marker — repairing"
+    strip_block "$ZRC" > "$tmp"
   elif [ -f "$ZRC" ]; then cp "$ZRC" "$tmp"; fi
   printf '\n%s\n' "$BLOCK" >> "$tmp"; mv "$tmp" "$ZRC"
   ok "installed chpwd hook for: $(for ((i=0;i<N;i++)); do printf '%s ' "${LBL[i]}"; done)"

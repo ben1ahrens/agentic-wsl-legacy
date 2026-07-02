@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# git-setup.sh — Interactive multi-account git setup for WSL2, 1Password-managed.
+# 40-git-setup.sh — Interactive multi-account git setup for WSL2, 1Password-managed.
 #
 # For each profile you define, it wires up:
 #   - an SSH host alias in ~/.ssh/config pinned to that account's 1Password public key
@@ -16,8 +16,8 @@
 # live in idempotent marked blocks; re-running replaces them rather than duplicating.
 #
 # Usage:
-#   ./git-setup.sh             # interactive setup
-#   ./git-setup.sh --dry-run   # ask everything, but write nothing (preview)
+#   ./40-git-setup.sh             # interactive setup
+#   ./40-git-setup.sh --dry-run   # ask everything, but write nothing (preview)
 #
 set -uo pipefail
 
@@ -46,16 +46,36 @@ yesno(){ # yesno "prompt" "default y/n"
   read -r -p "  $__p $__h: " __i; __i="${__i:-$__d}"; case "$__i" in y|Y|yes|YES) return 0;; *) return 1;; esac
 }
 pause(){ read -r -p "  $1" _; }
-backup(){ [ "$DRY" -eq 1 ] && return 0; local f="$1"; [ -f "$f" ] && cp "$f" "$f.bak.$(date +%Y%m%d-%H%M%S)" && info "backed up $f"; }
+backup_file(){  # copy $1 into ~/.local/state/wsl2-dev/backups (newest 5 kept); honours --dry-run
+  local src="$1" base dir f i=0; [ -f "$src" ] || return 0
+  base="$(basename "$src")"; dir="${XDG_STATE_HOME:-$HOME/.local/state}/wsl2-dev/backups"
+  if [ "${DRY:-0}" -eq 1 ]; then printf '  %s· would back up %s%s\n' "${D:-}" "${src/#$HOME/\~}" "${Z:-}"; return 0; fi
+  mkdir -p "$dir" && cp -p "$src" "$dir/${base}.$(date +%Y%m%d-%H%M%S).bak" \
+    && printf '  %s✓%s backed up %s → %s/\n' "${G:-}" "${Z:-}" "${src/#$HOME/\~}" "${dir/#$HOME/\~}"
+  while IFS= read -r f; do i=$((i+1)); [ "$i" -gt 5 ] && rm -f "$f"; done < <(printf '%s\n' "$dir/${base}".*.bak | sort -r)
+}
 
-MS="# >>> git-profiles (managed by git-setup.sh) >>>"
-ME="# <<< git-profiles (managed by git-setup.sh) <<<"
+BLOCK_NAME="git-profiles"
+MS="# >>> ${BLOCK_NAME} (managed by 40-git-setup.sh) >>>"
+ME="# <<< ${BLOCK_NAME} (managed by 40-git-setup.sh) <<<"
+# Strip is keyed on the block NAME (prefix match): blocks written under an older
+# script name are still replaced, and a missing end marker can't eat the blocks
+# that follow — stripping stops at the next '# >>> ' opener or EOF.
+strip_block(){ # file → stdout minus the named block
+  awk -v sp="# >>> ${BLOCK_NAME} " -v ep="# <<< ${BLOCK_NAME} " '
+    k && index($0,ep)==1       {k=0; next}
+    k && index($0,"# >>> ")==1 {k=0; print; next}
+    k                          {next}
+    index($0,sp)==1            {k=1; next}
+    {print}' "$1"
+}
 insert_block(){ # file, block-content
   local file="$1" block="$2" tmp
   if [ "$DRY" -eq 1 ]; then printf '\n%s--- would write managed block into %s ---%s\n%s\n' "$D" "$file" "$Z" "$block"; return; fi
-  backup "$file"; mkdir -p "$(dirname "$file")"; tmp="$(mktemp)"
-  if [ -f "$file" ] && grep -qF "$MS" "$file"; then
-    awk -v s="$MS" -v e="$ME" 'index($0,s){k=1} !k{print} index($0,e){k=0}' "$file" > "$tmp"
+  backup_file "$file"; mkdir -p "$(dirname "$file")"; tmp="$(mktemp)"
+  if [ -f "$file" ] && grep -q "^# >>> ${BLOCK_NAME} " "$file"; then
+    grep -q "^# <<< ${BLOCK_NAME} " "$file" || warn "existing ${BLOCK_NAME} block had no end marker — repairing"
+    strip_block "$file" > "$tmp"
   elif [ -f "$file" ]; then cp "$file" "$tmp"; fi
   printf '\n%s\n' "$block" >> "$tmp"; mv "$tmp" "$file"
 }

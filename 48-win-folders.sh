@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# link-windows-folders.sh — Bridge Windows folders into WSL and add shell conveniences.
+# 48-win-folders.sh — Bridge Windows folders into WSL and add shell conveniences.
 #
 #   1. Symlinks your Windows Downloads folder to ~/Downloads.
 #   2. Finds every OneDrive instance under your Windows profile and asks which to symlink.
@@ -16,11 +16,11 @@
 # Safe: never clobbers a real file/dir; backs up ~/.zshrc; the managed block is idempotent.
 #
 # Usage:
-#   ./link-windows-folders.sh                       # detect + interactive
-#   ./link-windows-folders.sh --no-projects-shortcuts
-#   ./link-windows-folders.sh --projects-root ~/code
-#   ./link-windows-folders.sh --winhome /mnt/c/Users/you   # override autodetection
-#   ./link-windows-folders.sh --dry-run             # preview; no symlinks, no file changes
+#   ./48-win-folders.sh                       # detect + interactive
+#   ./48-win-folders.sh --no-projects-shortcuts
+#   ./48-win-folders.sh --projects-root ~/code
+#   ./48-win-folders.sh --winhome /mnt/c/Users/you   # override autodetection
+#   ./48-win-folders.sh --dry-run             # preview; no symlinks, no file changes
 #
 set -uo pipefail
 
@@ -54,8 +54,19 @@ ask(){ local __v="$1" __p="$2" __d="${3:-}" __i; if [ -n "$__d" ]; then read -r 
 yesno(){ local __p="$1" __d="${2:-y}" __i __h; case "$__d" in y|Y) __h="[Y/n]";; *) __h="[y/N]";; esac; read -r -p "  $__p $__h: " __i; __i="${__i:-$__d}"; case "$__i" in y|Y|yes|YES) return 0;; *) return 1;; esac; }
 tilde(){ printf '%s' "${1/#$HOME/\~}"; }
 
-MS="# >>> win-shortcuts (managed by link-windows-folders.sh) >>>"
-ME="# <<< win-shortcuts (managed by link-windows-folders.sh) <<<"
+BLOCK_NAME="win-shortcuts"
+MS="# >>> ${BLOCK_NAME} (managed by 48-win-folders.sh) >>>"
+ME="# <<< ${BLOCK_NAME} (managed by 48-win-folders.sh) <<<"
+# Name-keyed strip: replaces blocks written under older script names and stops
+# at the next '# >>> ' opener (or EOF) if the end marker is missing.
+strip_block(){ # file → stdout minus the named block
+  awk -v sp="# >>> ${BLOCK_NAME} " -v ep="# <<< ${BLOCK_NAME} " '
+    k && index($0,ep)==1       {k=0; next}
+    k && index($0,"# >>> ")==1 {k=0; print; next}
+    k                          {next}
+    index($0,sp)==1            {k=1; next}
+    {print}' "$1"
+}
 
 printf '%s%sWindows folder bridges + shell shortcuts%s  %s\n' "$B" "$G" "$Z" "${D}$([ "$DRY" -eq 1 ] && echo '(DRY RUN)')${Z}"
 
@@ -181,8 +192,9 @@ else
   ZRC="$HOME/.zshrc"
   backup_file "$ZRC"
   tmp="$(mktemp)"
-  if [ -f "$ZRC" ] && grep -qF "$MS" "$ZRC"; then
-    awk -v s="$MS" -v e="$ME" 'index($0,s){k=1} !k{print} index($0,e){k=0}' "$ZRC" > "$tmp"
+  if [ -f "$ZRC" ] && grep -q "^# >>> ${BLOCK_NAME} " "$ZRC"; then
+    grep -q "^# <<< ${BLOCK_NAME} " "$ZRC" || warn "existing ${BLOCK_NAME} block had no end marker — repairing"
+    strip_block "$ZRC" > "$tmp"
   elif [ -f "$ZRC" ]; then cp "$ZRC" "$tmp"; fi
   printf '\n%s\n' "$BLOCK" >> "$tmp"; mv "$tmp" "$ZRC"
   ok "wrote managed block (dl, dls, dlcp, dlmv, dlput$([ "$DO_PROJ" -eq 1 ] && echo ', projects nav'))"
@@ -196,4 +208,4 @@ echo "  ${B}2.${Z} Try it:  ${D}dls${Z} (recent downloads) · ${D}dlcp <file>${Z
 [ "$DO_PROJ" -eq 1 ] && echo "  ${B}3.${Z} Navigate:  ${D}projects${Z}$(for s in "${SUBS[@]}"; do printf ' · %s' "$s"; done)"
 echo
 info "~/Downloads and any OneDrive links point at the live Windows folders (changes sync both ways)."
-[ "$DO_PROJ" -eq 1 ] && info "If you ran git-setup.sh, some of these projects shortcuts duplicate its block — harmless, since they're identical."
+[ "$DO_PROJ" -eq 1 ] && info "If you ran 40-git-setup.sh, some of these projects shortcuts duplicate its block — harmless, since they're identical."
