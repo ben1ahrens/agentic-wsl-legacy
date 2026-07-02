@@ -6,7 +6,7 @@ secrets model, and the **hard rules** you must follow so you don't break things 
 
 **Source of truth:** the live environment is authoritative — `35-verify-setup.sh` (read-only health
 check) and the managed blocks in `~/.zshrc` reflect reality; this file is a snapshot (last verified
-2026-06-29). If this doc names a file, flag, or command, confirm it still exists before relying on it.
+2026-07-02). If this doc names a file, flag, or command, confirm it still exists before relying on it.
 
 ---
 
@@ -24,7 +24,7 @@ check) and the managed blocks in `~/.zshrc` reflect reality; this file is a snap
    managed blocks. To change it, edit the owning script and re-run it (they're idempotent, back up
    first, and support `--dry-run`). See §7.
 5. **Toolchain is fixed:** Python via **uv**, Node via **fnm**, plus **Bun**. Do **not** `apt install`
-   node/python or use system pip. GPU ML uses **PyTorch on the `cu128` wheel index** (no TensorFlow).
+   node/python or use system pip. GPU ML uses **PyTorch on the `cu130` wheel index** (no TensorFlow).
 6. **Commits are SSH-signed** and should show **Verified** on GitHub. Don't disable signing.
 
 ---
@@ -61,7 +61,7 @@ The setup scripts themselves live at `~/projects/personal/agentic-wsl/agentic-ws
 | Node (LTS) | **fnm** | `~/.local/share/fnm` | auto-switches per dir; Windows Node is pruned from PATH |
 | Bun | bun | `~/.bun` | alongside Node |
 | AWS CLI v2 | binary | PATH | `aws sso login` (SSO not yet configured) |
-| starship, zoxide, direnv, bat, eza, gitleaks, fzf | Homebrew | `/home/linuxbrew` | `z` (zoxide), `direnv` auto-activates venvs |
+| starship, zoxide, direnv, bat, eza, gitleaks, fzf, atuin | Homebrew | `/home/linuxbrew` | `z` (zoxide), `direnv` auto-activates venvs |
 | ripgrep (`rg`), fd | apt/brew | PATH | `grep`→`rg`, `find`→`fd`, `cat`→`bat`, `ls`→`eza` are interactive aliases |
 | pre-commit | uv tool | `~/.local/bin` | |
 
@@ -131,8 +131,10 @@ The `github` MCP server is the **remote HTTP plugin** `https://api.githubcopilot
 | `git-profiles` | `40-git-setup.sh` | SSH-agent bridge, `proj`/`work`/`pers`/`icl` nav |
 | `gh-profiles` | `45-github-profiles.sh` | per-dir gh account switch, `ghwho` |
 | `win-shortcuts` | `48-win-folders.sh` | `dl` / `dls` / `dlcp` / `dlmv` / `dlput` |
-| `dev-shortcuts` | `50-shortcuts.sh` | `opget`/`opcp`/`opadd`/`openv`/`oprun`, `mkcd`/`pj`, the `docs` command |
+| `dev-shortcuts` | `50-shortcuts.sh` | `opget`/`opcp`/`opadd`/`openv`/`oprun`, `train`/`nb`, `mkcd`/`pj`, the `docs` command |
 | `github-mcp` | `60-github-mcp.sh` | the `claude` wrapper + `ghmcp` |
+| `agent-fleet` | `65-agent-fleet.sh` | `codexr` (Codex as read-only reviewer); also owns Claude sandbox config + Codex MCP/AGENTS.md |
+| `claude-science` | `70-claude-science.sh` | the `science` launcher (daemon + Windows-browser UI) |
 
 **Agent rule:** to change shell behavior, edit the **owning script** and re-run it
 (`./<script> --dry-run` first). The script strips and re-appends its block idempotently and backs up
@@ -143,11 +145,18 @@ The `github` MCP server is the **remote HTTP plugin** `https://api.githubcopilot
 Run **`docs`** for the full, always-installed reference (`docs <query>` to filter). Highlights:
 
 - **Secrets:** `opget`, `opcp`, `opadd`, `op` · **Project env:** `openv`, `oprun`
-- **GitHub/MCP:** `claude` (token-injecting launcher), `ghmcp` (token health), `ghwho`
+- **Agent fleet:** `claude` (token-injecting launcher), `codexr` (read-only reviewer),
+  `science` (Claude Science workbench), `ghmcp` (token health), `ghwho`
+- **Research:** `train <cmd>` (tmux + toast on finish), `nb` (JupyterLab), `notify`, `lab`
+  (dashboard); Claude skills: `new-project` (Q&A scaffold), `paper` (capture → Notion),
+  `log-experiment`
 - **Nav:** `proj`/`work`/`pers`/`icl`, `pj` (fzf), `mkcd`, `z` (zoxide)
 - **Windows bridge:** `open`/`wopen`, `files`, `code`, `dl`/`dls`/`dlcp`/`dlmv`/`dlput`
 - **Git/CLI:** `gs`/`ga`/`gc`/`gp`, `ls`/`ll`/`lt`, `cat`/`grep`/`find` (eza/bat/rg/fd)
-- **Scaffold/health:** `new-project.sh <name>`, `35-verify-setup.sh`, `docs`
+- **Scaffold/health:** `new-project.sh <name> [--ml]`, `onboard <url|org/repo>`,
+  `35-verify-setup.sh` (sections A–J), `00-bootstrap.sh`, `docs`
+- **Knowledge graph (Notion "Research Hub"):** Papers ↔ Ideas ↔ Projects ↔ Experiments —
+  agents have full read-write; capture via the `paper` skill, runs via `log-experiment`
 
 ## 9. Setup scripts & conventions
 
@@ -155,8 +164,9 @@ Scripts in the repo are numbered by phase and share strict conventions:
 
 - `10-wsl-base.sh` → `20-tooling.sh` → `30-shell.sh` → `35-verify-setup.sh` (base layer)
 - `40-git-setup.sh` / `45-github-profiles.sh` (multi-account git) · `48-win-folders.sh`
-- `50-shortcuts.sh` (helpers + `docs`) · `60-github-mcp.sh` (MCP token wrapper + `ghmcp`)
-- `new-project.sh` (uv scaffold: cu128 torch, ruff, direnv, Playwright, GPU verify)
+- `50-shortcuts.sh` (helpers + `docs`/`notify`/`lab`/`onboard`) · `60-github-mcp.sh` (MCP token wrapper + `ghmcp`)
+- `65-agent-fleet.sh` (Claude sandbox + hooks, Codex config, `codexr`, skills) · `70-claude-science.sh` (`science`)
+- `new-project.sh` (uv scaffold: cu130 torch, `--ml` HF+trackio, agent config, GPU verify) · `00-bootstrap.sh` (whole pipeline in order)
 
 Shared conventions every mutating script follows: `set -uo pipefail` (not `-e`; errors handled
 explicitly), `--dry-run`/`-n` and `-h`, TTY-guarded color output, **back up before edit**, and

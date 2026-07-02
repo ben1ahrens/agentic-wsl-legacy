@@ -18,7 +18,7 @@ secrets into a gitignored `.env` once per session.
 ## Target machine (what the setup assumes)
 
 - Windows 11 + WSL2, **Ubuntu 24.04**, systemd on, **zsh** login shell, Windows Terminal
-- **RTX 5070 Ti** (Blackwell, `sm_120`) — PyTorch via the **cu128** CUDA wheel index
+- **RTX 5070 Ti** (Blackwell, `sm_120`) — PyTorch via the **cu130** CUDA wheel index
 - Docker Desktop with WSL integration enabled
 - 1Password desktop app (Windows Hello)
 - Three GitHub accounts → **directory-based** git profiles: `work`, `personal`, `imperial`
@@ -36,7 +36,11 @@ secrets into a gitignored `.env` once per session.
 | `48-win-folders.sh` | symlinks Windows Downloads/OneDrive into `~`, adds `dl`/`dls`/`dlcp`/`dlmv`/`dlput` helpers |
 | `50-shortcuts.sh` | workflow shortcuts: 1Password helpers (`opget`/`opcp`/`opadd`/`openv`/`oprun`), nav (`mkcd`/`pj`), the `docs` cheatsheet command |
 | `60-github-mcp.sh` | per-profile GitHub-MCP tokens: the `claude` launcher wrapper + `ghmcp` token health check |
-| `new-project.sh` | scaffolds a uv project (PyTorch cu130, ruff, direnv, 1Password, Playwright) and verifies the GPU |
+| `65-agent-fleet.sh` | Claude Code sandbox + config-guard hook, Codex MCP/AGENTS.md, `codexr` reviewer, installs `agent-skills/` |
+| `70-claude-science.sh` | Claude Science (research workbench) install + the `science` launcher |
+| `00-bootstrap.sh` | runs the whole pipeline above in order, step-by-step, with a final health check |
+| `new-project.sh` | scaffolds a uv project (PyTorch cu130, ruff, direnv, 1Password, Playwright, agent config; `--ml` adds HF + trackio) and verifies the GPU |
+| `agent-skills/` | user-level Claude skills (`new-project` Q&A, `paper` capture, `log-experiment`) installed by `65-agent-fleet.sh` |
 | `tidy-backups.sh` | maintenance: sweeps legacy scattered `*.bak.*` strays into the central backup dir |
 | `wsl2-dev-environment-setup.md` | the full 16-section tutorial — the narrative and rationale behind these scripts |
 
@@ -68,6 +72,9 @@ These are outside WSL and only you can do them. Several are likely already done.
 ---
 
 ## Run order
+
+> **Shortcut:** `./00-bootstrap.sh` runs every phase below in order, asking before each step.
+> The phases are listed separately so you can run or re-run any layer alone.
 
 ### Phase 1 — base system (in WSL)
 
@@ -104,17 +111,29 @@ work && ssh -T git@github-work          # should greet your work account
 git -C ~/projects/work/<repo> commit …  # commits show as Verified on GitHub
 ```
 
-### Phase 3 — per project
+### Phase 3 — conveniences, agents & research layer
+
+```bash
+./48-win-folders.sh        # Windows Downloads/OneDrive bridges (optional)
+./50-shortcuts.sh          # op helpers, train/nb, docs/notify/lab/onboard commands
+./60-github-mcp.sh         # per-profile GitHub-MCP tokens (claude wrapper + ghmcp)
+./65-agent-fleet.sh        # Claude sandbox + hooks, Codex config, codexr, skills
+./70-claude-science.sh     # Claude Science workbench + `science` launcher
+exec zsh
+```
+
+### Phase 4 — per project
 
 Run from **inside** a profile folder so the new repo inherits that identity automatically:
 
 ```bash
 cd ~/projects/work
-./new-project.sh my-thing               # scaffold + install + GPU/Playwright verify
+./new-project.sh my-thing --ml          # scaffold + install + GPU verify (HF + trackio)
 ./new-project.sh my-thing --dry-run     # or preview first
+onboard org/repo                        # or set up a cloned third-party repo
 ```
 
-### Phase 4 — finishing touches (manual)
+### Phase 5 — finishing touches (manual)
 
 ```bash
 aws configure sso && aws sso login      # set up short-lived AWS creds (CLI already installed)
@@ -126,7 +145,7 @@ Open the project from your editor's WSL remote, and you're working.
 ## Script reference
 
 Each mutating script takes `--dry-run` (preview, no changes) and backs up any file it edits to
-`<file>.bak.<timestamp>`.
+`~/.local/state/wsl2-dev/backups/` (newest 5 kept per file).
 
 ### `10-wsl-base.sh`
 apt full-upgrade, then installs `build-essential cmake pkg-config htop tree zip ca-certificates
@@ -136,7 +155,7 @@ SSH-agent bridge; `bubblewrap` is a lightweight sandbox for agents.
 ### `20-tooling.sh`
 Installs the toolchain **without touching shell config** (uses `--no-modify-path` / `--skip-shell`
 and restores rc files on exit): **uv** (+ Python 3.12 & 3.13), **fnm** (+ Node LTS), **Bun**,
-**AWS CLI v2**, Homebrew tools (`starship zoxide direnv bat eza gitleaks fzf`), and **pre-commit**.
+**AWS CLI v2**, Homebrew tools (`starship zoxide direnv bat eza gitleaks fzf atuin`), and **pre-commit**.
 Locations: uv/uvx → `~/.local/bin`; fnm/Node → `~/.local/share/fnm`; Bun → `~/.bun`; brew → `/home/linuxbrew`.
 
 ### `30-shell.sh`
@@ -146,9 +165,11 @@ leaking Windows Node, fnm init, Bun completions, a version-robust `fzf` line, `o
 `$BROWSER`, and history settings. Re-running replaces the block in place.
 
 ### `35-verify-setup.sh`  *(read-only)*
-Six sections: **A** apt packages, **B** tools at absolute paths, **C** `~/.zshrc` config, **D** the
+Ten sections: **A** apt packages, **B** tools at absolute paths, **C** `~/.zshrc` config, **D** the
 *live* interactive shell (via `zsh -ic` — confirms `node`/`npm` resolve to fnm with no `/mnt/c`
-leak), **E** interop/manual items, **F** git-setup pre-flight (1Password CLI, the agent pipe + a
+leak), **E** interop/manual items, **G** ML/GPU (torch in the newest scaffolded project, NVIDIA
+container runtime), **H** agent fleet (claude/codex/claude-science + sandbox prereqs), **I** GUI/WSLg
+(GL renderer), **J** managed-block integrity + disk, and **F** git-setup pre-flight (1Password CLI, the agent pipe + a
 check for the competing Windows `ssh-agent` service, `npiperelay.exe`, `gh`). Exit `0` only if every
 critical check passes. `--open-browser` also fires a live `wopen` test.
 
@@ -169,13 +190,13 @@ Finally installs a zsh `chpwd` hook: entering a profile directory prints a notic
 `gh auth switch`. Flags: `--auth web|pat`, `--hook-only`, `--dry-run`.
 
 ### `new-project.sh`
-Scaffolds `./<name>`: a `pyproject.toml` with **torch/torchvision pinned to the cu128 wheel index**
+Scaffolds `./<name>`: a `pyproject.toml` with **torch/torchvision pinned to the cu130 wheel index**
 (via `[[tool.uv.index]]` + `[tool.uv.sources]`), a `dev` group (ruff, pre-commit, pytest,
 pytest-playwright), `.envrc` (`layout uv` + `dotenv_if_exists .env`), `.env.tpl`/`.env.example`,
 `.vscode/settings.json`, local ruff pre-commit hooks, a Playwright smoke test, and
 `scripts/verify_gpu.py`. Then `git init`, `uv sync`, `playwright install --with-deps chromium`,
 `pre-commit install`, `direnv allow`, and runs the GPU + Playwright checks. Flags: `--python`,
-`--cuda cu128|cu129|…`, `--no-torch`, `--no-playwright`, `--no-install`, `--dry-run`.
+`--cuda cu126|cu130|cu132|…`, `--ml`, `--no-torch`, `--no-playwright`, `--no-install`, `--dry-run`.
 
 ---
 
