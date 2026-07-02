@@ -132,7 +132,7 @@ else
 fi
 
 # ---------- Homebrew CLI tools ----------
-hdr "shell tools via Homebrew  (starship zoxide direnv bat eza gitleaks fzf)"
+hdr "shell tools via Homebrew  (starship zoxide direnv bat eza gitleaks fzf atuin)"
 BREW=""
 for c in "$(command -v brew 2>/dev/null || true)" /home/linuxbrew/.linuxbrew/bin/brew "$HOME/.linuxbrew/bin/brew"; do
   [ -n "$c" ] && [ -x "$c" ] && { BREW="$c"; break; }
@@ -144,7 +144,7 @@ else
   ok "using brew at $BREW"
   # `eval brew shellenv` only affects THIS process (no rc edit).
   [ "$DRY" -eq 0 ] && eval "$("$BREW" shellenv)"
-  step "brew install starship zoxide direnv bat eza gitleaks fzf" && ok "shell tools installed (inert until 30-shell.sh adds their init hooks)"
+  step "brew install starship zoxide direnv bat eza gitleaks fzf atuin" && ok "shell tools installed (inert until 30-shell.sh adds their init hooks)"
 fi
 
 # ---------- pre-commit ----------
@@ -162,7 +162,7 @@ check "Python(uv)" "$UV"
 check "fnm"       "${FNM:-fnm}"
 check "Bun"       "$BUN"
 check "aws"       "aws"
-[ -n "$BREW" ] && for t in starship zoxide direnv bat eza gitleaks fzf; do check "$t" "$t"; done
+[ -n "$BREW" ] && for t in starship zoxide direnv bat eza gitleaks fzf atuin; do check "$t" "$t"; done
 check "pre-commit" "$HOME/.local/bin/pre-commit"
 
 echo

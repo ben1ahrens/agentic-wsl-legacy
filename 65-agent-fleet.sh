@@ -177,7 +177,20 @@ insert_block "$HOME/.codex/AGENTS.md" "# >>> ${BLOCK_NAME} (managed by 65-agent-
   script and re-run it; never edit those files directly.
 # <<< ${BLOCK_NAME} (managed by 65-agent-fleet.sh) <<<"
 
-# ---------- 4. codexr reviewer function (managed ~/.zshrc block) ----------
+# ---------- 4. user-level Claude skills (from ./agent-skills) ----------
+hdr "Claude skills (~/.claude/skills)"
+SKILLSRC="$(cd "$(dirname "$0")" && pwd)/agent-skills"
+if [ -d "$SKILLSRC" ]; then
+  for sdir in "$SKILLSRC"/*/; do
+    [ -f "$sdir/SKILL.md" ] || continue
+    sname="$(basename "$sdir")"
+    if [ "$DRY" -eq 1 ]; then info "would install skill '$sname' → ~/.claude/skills/$sname/"
+    else mkdir -p "$HOME/.claude/skills/$sname" && cp "$sdir/SKILL.md" "$HOME/.claude/skills/$sname/SKILL.md" \
+      && ok "skill '$sname' installed (available in every Claude session)"; fi
+  done
+else info "no agent-skills/ directory next to this script — skipped"; fi
+
+# ---------- 5. codexr reviewer function (managed ~/.zshrc block) ----------
 hdr "codexr (~/.zshrc block)"
 insert_block "$HOME/.zshrc" "# >>> ${BLOCK_NAME} (managed by 65-agent-fleet.sh) >>>
 # Codex as second-opinion reviewer — always read-only sandboxed, so it can never write.

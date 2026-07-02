@@ -93,6 +93,9 @@ if command -v fzf >/dev/null 2>&1; then
   if fzf --zsh >/dev/null 2>&1; then source <(fzf --zsh)
   else for _f in /usr/share/doc/fzf/examples/key-bindings.zsh /usr/share/doc/fzf/examples/completion.zsh; do [ -r "$_f" ] && source "$_f"; done; fi
 fi
+# atuin history — fuzzy, ranked Ctrl-R; init AFTER fzf so atuin owns Ctrl-R (fzf keeps
+# Ctrl-T / Alt-C). Local-only unless you run `atuin login`; up-arrow stays standard zsh.
+command -v atuin >/dev/null 2>&1 && eval "$(atuin init zsh --disable-up-arrow)"
 # --- 1Password + Windows-open helpers ---
 alias op="op.exe"                                          # 1Password CLI via Windows Hello
 alias open="wopen"                                         # open files/URLs in Windows
