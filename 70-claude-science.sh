@@ -96,22 +96,30 @@ ZRC="$HOME/.zshrc"
 BLOCK="# >>> ${BLOCK_NAME} (managed by 70-claude-science.sh) >>>
 # Claude Science — local AI research workbench (web UI on 127.0.0.1, daemon-based).
 #   science          start the daemon if needed and open the UI in your Windows browser
-#   science <cmd>    passthrough: status · url · logs · stop · update · open
+#   science <cmd>    passthrough: status · url · logs · stop · update
 science() {
   command -v claude-science >/dev/null 2>&1 || { print \"claude-science not installed — run 70-claude-science.sh\"; return 1; }
   if [ \$# -gt 0 ]; then command claude-science \"\$@\"; return; fi
-  if claude-science status 2>/dev/null | grep -q '\"running\": *true'; then
-    command claude-science open
-  else
+  if ! claude-science status 2>/dev/null | command grep -q '\"running\": *true'; then
     print \"starting the Claude Science daemon…\"
-    ( setsid claude-science serve >/dev/null 2>&1 & )
+    # Start with a linuxbrew-free PATH: the app's bwrap sandbox doesn't mount
+    # /home/linuxbrew, so bash & tools must resolve to system paths that exist
+    # inside it (brew's bash otherwise wins and micromamba setup fails).
+    local sane_path=\"\${(j.:.)\${(@)path:#*linuxbrew*}}\"
+    ( setsid env PATH=\"\$sane_path\" claude-science serve --no-browser >/dev/null 2>&1 & )
     local i
     for i in {1..30}; do
+      claude-science status 2>/dev/null | command grep -q '\"running\": *true' && break
       sleep 1
-      claude-science status 2>/dev/null | grep -q '\"running\": *true' && { command claude-science open; return 0; }
     done
-    print \"daemon didn't come up in 30s — check: claude-science logs --tail\"; return 1
+    claude-science status 2>/dev/null | command grep -q '\"running\": *true' \\
+      || { print \"daemon didn't come up in 30s — check: claude-science logs\"; return 1; }
   fi
+  # Open a fresh single-use login URL in the Windows browser ourselves — the app's
+  # own browser-open doesn't reach Windows from WSL.
+  local url; url=\"\$(claude-science url 2>/dev/null | command grep -oE 'https?://[^[:space:]]+' | head -1)\"
+  if [ -n \"\$url\" ]; then wopen \"\$url\" && print \"opened in your Windows browser (single-use link; 'science' again for a fresh one)\"
+  else print \"couldn't get a login URL — run: claude-science url  and paste it into your browser\"; return 1; fi
 }
 # <<< ${BLOCK_NAME} (managed by 70-claude-science.sh) <<<"
 if [ "$DRY" -eq 1 ]; then
