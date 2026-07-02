@@ -30,16 +30,19 @@ secrets into a gitignored `.env` once per session.
 | `10-wsl-base.sh` | apt full-upgrade + build essentials (incl. `socat`, `bubblewrap`); masks the tty getty |
 | `20-tooling.sh` | installs uv (+Python 3.12/3.13), fnm (+Node LTS), Bun, AWS CLI v2, brew CLI tools, pre-commit — **no shell-config changes** |
 | `30-shell.sh` | writes one complementary `~/.zshrc` block (PATH, fnm/Bun, Windows-node prune, fzf, `op`/`open` aliases) |
-| `verify-setup.sh` | **read-only** health check across the whole stack, plus a git-setup pre-flight |
-| `git-setup.sh` | interactive multi-account git: 1Password keys, SSH host aliases, per-directory identity + signing, folders, shortcuts |
-| `github-profiles.sh` | authenticates `gh` per account, uploads each key (auth + signing), installs a directory-aware shell hook |
-| `new-project.sh` | scaffolds a uv project (PyTorch cu128, ruff, direnv, 1Password, Playwright) and verifies the GPU |
+| `35-verify-setup.sh` | **read-only** health check across the whole stack, plus a git-setup pre-flight |
+| `40-git-setup.sh` | interactive multi-account git: 1Password keys, SSH host aliases, per-directory identity + signing, folders, shortcuts |
+| `45-github-profiles.sh` | authenticates `gh` per account, uploads each key (auth + signing), installs a directory-aware shell hook |
+| `48-win-folders.sh` | symlinks Windows Downloads/OneDrive into `~`, adds `dl`/`dls`/`dlcp`/`dlmv`/`dlput` helpers |
+| `50-shortcuts.sh` | workflow shortcuts: 1Password helpers (`opget`/`opcp`/`opadd`/`openv`/`oprun`), nav (`mkcd`/`pj`), the `docs` cheatsheet command |
+| `60-github-mcp.sh` | per-profile GitHub-MCP tokens: the `claude` launcher wrapper + `ghmcp` token health check |
+| `new-project.sh` | scaffolds a uv project (PyTorch cu130, ruff, direnv, 1Password, Playwright) and verifies the GPU |
+| `tidy-backups.sh` | maintenance: sweeps legacy scattered `*.bak.*` strays into the central backup dir |
 | `wsl2-dev-environment-setup.md` | the full 16-section tutorial — the narrative and rationale behind these scripts |
-| `artifact-editing.skill` | (standalone) installable skill for creating/editing document artifacts via file tools |
-| `wsl2-audit.sh`, `wsl2-inventory-graph.sh`, `wt-profile-diff.py` | the read-only audit tools used to profile the machine initially |
 
-> **Put all the scripts in one folder** (e.g. `~/setup`) and make them executable: `chmod +x ~/setup/*.sh`.
-> Every mutating script supports `--dry-run`, backs up anything it edits, and is safe to re-run.
+> **This repo is the canonical script location** — clone it and run scripts from here (they're
+> already executable). Every mutating script supports `--dry-run`, backs up anything it edits to
+> `~/.local/state/wsl2-dev/backups/`, and is safe to re-run.
 
 ---
 
@@ -74,7 +77,7 @@ These are outside WSL and only you can do them. Several are likely already done.
 #   ↑ review what it installed
 ./30-shell.sh           # adds the managed ~/.zshrc block
 exec zsh                # reload the shell
-./verify-setup.sh       # health check — sections A–D should be all ✓
+./35-verify-setup.sh       # health check — sections A–D should be all ✓
 ```
 
 `20-tooling.sh` makes **zero** permanent shell changes (it snapshots and restores your rc files);
@@ -86,12 +89,12 @@ your existing `comfort-shell` block untouched.
 First confirm the 1Password **SSH agent** and **CLI integration** are on (Phase 0 step 4), then:
 
 ```bash
-./verify-setup.sh       # Section F (git-setup pre-flight) should be ✓/·, no ✗
-./git-setup.sh          # → pauses for you to create each ed25519 key in the 1Password app
+./35-verify-setup.sh       # Section F (git-setup pre-flight) should be ✓/·, no ✗
+./40-git-setup.sh          # → pauses for you to create each ed25519 key in the 1Password app
 #   builds: ~/.ssh/config aliases, per-profile identity+signing, ~/projects/<profile> folders,
 #   zsh shortcuts, the SSH_AUTH_SOCK bridge; offers to `brew install gh`
 exec zsh
-./github-profiles.sh    # gh auth per account (browser or PAT), uploads keys, installs the directory hook
+./45-github-profiles.sh    # gh auth per account (browser or PAT), uploads keys, installs the directory hook
 exec zsh
 ```
 
@@ -142,14 +145,14 @@ existing `comfort-shell` block lacks: `~/.local/bin`/fnm/Bun on PATH, PATH de-du
 leaking Windows Node, fnm init, Bun completions, a version-robust `fzf` line, `op`/`open` aliases +
 `$BROWSER`, and history settings. Re-running replaces the block in place.
 
-### `verify-setup.sh`  *(read-only)*
+### `35-verify-setup.sh`  *(read-only)*
 Six sections: **A** apt packages, **B** tools at absolute paths, **C** `~/.zshrc` config, **D** the
 *live* interactive shell (via `zsh -ic` — confirms `node`/`npm` resolve to fnm with no `/mnt/c`
 leak), **E** interop/manual items, **F** git-setup pre-flight (1Password CLI, the agent pipe + a
 check for the competing Windows `ssh-agent` service, `npiperelay.exe`, `gh`). Exit `0` only if every
 critical check passes. `--open-browser` also fires a live `wopen` test.
 
-### `git-setup.sh`
+### `40-git-setup.sh`
 Interactive. Per profile it collects label, name, email, GitHub username; finds or creates your
 projects root and a subfolder per profile; **pauses while you create each ed25519 key in the
 1Password app**, then pulls only the *public* key via `op`. Generates: `~/.ssh/config` host aliases
@@ -158,7 +161,7 @@ projects root and a subfolder per profile; **pauses while you create each ed2551
 defaults + **directory-based** `includeIf "gitdir:…"`, and a `~/.zshrc` block with the
 `SSH_AUTH_SOCK` bridge + navigation shortcuts. Offers to `brew install gh`.
 
-### `github-profiles.sh`
+### `45-github-profiles.sh`
 Detects your profiles from `~/.ssh/config`. For each, **pauses so you switch the github.com account
 in your browser**, authenticates `gh` (`--auth web`, default — no PAT; or `--auth pat`, which opens
 a pre-filled token page), then uploads the key as **both** an authentication and a signing key.
@@ -180,9 +183,11 @@ pytest-playwright), `.envrc` (`layout uv` + `dotenv_if_exists .env`), `.env.tpl`
 
 - **Managed blocks.** Everything these scripts add to a config file lives between markers like
   `# >>> name >>>` … `# <<< name <<<`. Re-running a script strips and re-appends its block, so
-  edits never duplicate. Your `~/.zshrc` ends up with four independent blocks:
-  `comfort-shell` (yours), `wsl2-dev-setup` (30), `git-profiles` (git-setup), `gh-profiles` (github-profiles).
-- **Backups + dry-run.** Mutating scripts back up edited files (`.bak.<timestamp>`) and accept `--dry-run`.
+  edits never duplicate. Your `~/.zshrc` ends up with seven independent blocks:
+  `comfort-shell` (yours), `wsl2-dev-setup` (30), `git-profiles` (40), `gh-profiles` (45),
+  `win-shortcuts` (48), `dev-shortcuts` (50), `github-mcp` (60).
+- **Backups + dry-run.** Mutating scripts back up edited files to
+  `~/.local/state/wsl2-dev/backups/` (newest 5 kept) and accept `--dry-run`.
 - **1Password is the source of truth.** SSH private keys are created in the app and never hit the WSL
   disk (only `.pub` files do); long-lived secrets resolve via `op inject` into a gitignored `.env`.
 - **Identity follows the directory.** Which GitHub identity, signing key, and SSH key a repo uses is
@@ -201,7 +206,7 @@ git commit -am "…"                      # signed with the work identity → Ve
 
 ## Health check & troubleshooting
 
-`./verify-setup.sh` is the first thing to run when something feels off. Common items:
+`./35-verify-setup.sh` is the first thing to run when something feels off. Common items:
 
 - **`unknown option: --zsh` on shell start** — old apt `fzf`; `brew install fzf` (30-shell's line is already version-robust).
 - **`op.exe` not reachable** — install the CLI (`winget install 1password-cli`) and enable the CLI integration.

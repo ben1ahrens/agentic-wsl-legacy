@@ -17,8 +17,8 @@
 | Layer | Components | State |
 |-------|-----------|-------|
 | Base system | `10-wsl-base.sh`, `20-tooling.sh`, `30-shell.sh`, `35-verify-setup.sh` | ✅ **Run & verified on the machine** — 58 passed / 1 warning / 0 failed |
-| Git & GitHub | `git-setup.sh`, `github-profiles.sh` | ✅ **Run & verified** — 3 profiles authenticate over SSH; identity + signing resolve per-directory |
-| Conveniences | `link-windows-folders.sh` | ✅ **Run** — `win-shortcuts` block present in `~/.zshrc` |
+| Git & GitHub | `40-git-setup.sh`, `45-github-profiles.sh` | ✅ **Run & verified** — 3 profiles authenticate over SSH; identity + signing resolve per-directory |
+| Conveniences | `48-win-folders.sh` | ✅ **Run** — `win-shortcuts` block present in `~/.zshrc` |
 | Per-project scaffold | `new-project.sh` | 🟡 Built & sandbox-validated — **not yet exercised** on a real cu128 project |
 | Finishing | AWS SSO (`aws configure sso`) | 🔴 **Not started** — no `~/.aws/config` yet |
 | Documentation | tutorial, `README.md`, this file | ✅ Complete |
@@ -53,9 +53,9 @@ tool lives on the Linux ext4 filesystem under `~/projects` (never `/mnt/c`); sec
 | `20-tooling.sh` | uv, fnm/Node, Bun, AWS CLI, brew tools, pre-commit | ✅ Run & verified |
 | `30-shell.sh` | `~/.zshrc` managed block | ✅ Run & verified |
 | `35-verify-setup.sh` | Read-only health check (6 sections) | ✅ Run — 58/1/0 |
-| `git-setup.sh` | Multi-account git: keys, identity, signing, folders, shortcuts | ✅ **Run & verified** |
-| `github-profiles.sh` | `gh` auth + key upload (auth+signing) + directory hook | ✅ **Run & verified** |
-| `link-windows-folders.sh` | Symlink Downloads/OneDrive + download helpers + projects nav | ✅ **Run** |
+| `40-git-setup.sh` | Multi-account git: keys, identity, signing, folders, shortcuts | ✅ **Run & verified** |
+| `45-github-profiles.sh` | `gh` auth + key upload (auth+signing) + directory hook | ✅ **Run & verified** |
+| `48-win-folders.sh` | Symlink Downloads/OneDrive + download helpers + projects nav | ✅ **Run** |
 | `new-project.sh` | uv scaffold (cu128 torch, ruff, direnv, Playwright) + GPU verify | 🟡 Validated, not exercised |
 
 > **Note on filenames.** The base scripts are numbered (`10-`, `20-`, `30-`, `35-`); the git/GitHub
@@ -116,18 +116,18 @@ tool lives on the Linux ext4 filesystem under `~/projects` (never `/mnt/c`); sec
 - **Other choices:** `appendWindowsPath` kept (Windows-Node leak fixed via fnm + a PATH prune);
   `wslu` not used (replaced by a `wopen` helper); **TensorFlow excluded**, PyTorch only; **uv**
   as the single Python tool; **Bun** added alongside Node; Docker Desktop kept; `gh` installed
-  via Homebrew (offered by `git-setup.sh`).
+  via Homebrew (offered by `40-git-setup.sh`).
 
 ## Issues resolved this session
 
 - **`unknown option: --zsh` on shell start** — Ubuntu's apt `fzf` (0.44) predates `--zsh`.
   Fixed by making the `.zshrc` line version-robust and installing `fzf` via Homebrew.
-- **git-setup pre-flight** — added Section F to `verify-setup.sh` (1Password CLI, the agent
+- **git-setup pre-flight** — added Section F to `35-verify-setup.sh` (1Password CLI, the agent
   pipe, a check for the competing Windows `ssh-agent` service, `npiperelay.exe`, `gh`).
 - **1Password CLI install** — corrected to `winget install 1password-cli`; clarified that the
   "Integrate with 1Password CLI" toggle connects the CLI but doesn't install it, and what
   "Unlock using system authentication" (Windows Hello) does.
-- **PATs can't be script-generated** — GitHub has no token-creation API, so `github-profiles.sh`
+- **PATs can't be script-generated** — GitHub has no token-creation API, so `45-github-profiles.sh`
   defaults to gh's browser login (no PAT) and offers a pre-filled token page as the alternative.
 - **OneDrive vault typo (`WSL-Dev` vs `Private`)** — confirmed it's only a lookup path, not a
   stored setting; nothing to undo.
@@ -146,13 +146,13 @@ Most of this is now done (✅ confirmed by the 2026-06-29 audit). Only the unche
 
 **Git & GitHub (in WSL)** — ✅ run & verified
 - [x] `./35-verify-setup.sh` — Section F all ✓/·, no ✗
-- [x] `./git-setup.sh` — keys, SSH config, identity, folders, shortcuts; `gh` installed (2.95.0)
-- [x] `./github-profiles.sh` — gh auth for all 3 accounts, keys uploaded (auth + signing), directory hook installed
+- [x] `./40-git-setup.sh` — keys, SSH config, identity, folders, shortcuts; `gh` installed (2.95.0)
+- [x] `./45-github-profiles.sh` — gh auth for all 3 accounts, keys uploaded (auth + signing), directory hook installed
 - [x] Tested: `ssh -T git@github-{work,personal,imperial}` each greets the right account
 - [ ] Make one **Verified** signed commit + push to confirm the green badge end-to-end *(signing is configured and SSH works; this repo currently has only staged files, no commit yet)*
 
 **Conveniences & per project**
-- [x] `./link-windows-folders.sh` — `win-shortcuts` block installed
+- [x] `./48-win-folders.sh` — `win-shortcuts` block installed
 - [ ] `cd ~/projects/work && ./new-project.sh <name>` — scaffold + install + GPU/Playwright verify *(not yet exercised; `~/projects/personal/test` is an empty leftover to clean up)*
 
 **Finishing (manual)**
@@ -165,9 +165,9 @@ Most of this is now done (✅ confirmed by the 2026-06-29 audit). Only the unche
   `./30-shell.sh` to swap in the hardened line if you want the warning gone.
 - **Empty `~/projects/personal/test` folder** — a leftover; safe to `rmdir`.
 - **Numbered vs unnumbered git scripts have diverged** (`40-git-setup.sh`/`45-github-profiles.sh`
-  vs the canonical `git-setup.sh`/`github-profiles.sh`) — reconcile or delete the stale copies so a
+  vs the canonical `40-git-setup.sh`/`45-github-profiles.sh`) — reconcile or delete the stale copies so a
   future re-run can't pick the wrong one. See `CLAUDE.md`.
-- The projects shortcuts in `link-windows-folders.sh` duplicate `git-setup.sh`'s — identical
+- The projects shortcuts in `48-win-folders.sh` duplicate `40-git-setup.sh`'s — identical
   `cd` aliases, so harmless; use `--no-projects-shortcuts` to skip if preferred.
 
 ## See also

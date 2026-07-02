@@ -128,9 +128,9 @@ The `github` MCP server is the **remote HTTP plugin** `https://api.githubcopilot
 |-------|--------------|----------|
 | `comfort-shell` | (user's own) | brew/starship/zoxide/direnv init, aliases, keybindings — **do not touch** |
 | `wsl2-dev-setup` | `30-shell.sh` | PATH (uv/fnm/Bun), fnm/fzf init, `op`/`open` aliases, `$BROWSER=wopen`, history |
-| `git-profiles` | `git-setup.sh` | SSH-agent bridge, `proj`/`work`/`pers`/`icl` nav |
-| `gh-profiles` | `github-profiles.sh` | per-dir gh account switch, `ghwho` |
-| `win-shortcuts` | `link-windows-folders.sh` | `dl` / `dls` / `dlcp` / `dlmv` / `dlput` |
+| `git-profiles` | `40-git-setup.sh` | SSH-agent bridge, `proj`/`work`/`pers`/`icl` nav |
+| `gh-profiles` | `45-github-profiles.sh` | per-dir gh account switch, `ghwho` |
+| `win-shortcuts` | `48-win-folders.sh` | `dl` / `dls` / `dlcp` / `dlmv` / `dlput` |
 | `dev-shortcuts` | `50-shortcuts.sh` | `opget`/`opcp`/`opadd`/`openv`/`oprun`, `mkcd`/`pj`, the `docs` command |
 | `github-mcp` | `60-github-mcp.sh` | the `claude` wrapper + `ghmcp` |
 
@@ -154,7 +154,7 @@ Run **`docs`** for the full, always-installed reference (`docs <query>` to filte
 Scripts in the repo are numbered by phase and share strict conventions:
 
 - `10-wsl-base.sh` → `20-tooling.sh` → `30-shell.sh` → `35-verify-setup.sh` (base layer)
-- `git-setup.sh` / `github-profiles.sh` (multi-account git) · `link-windows-folders.sh`
+- `40-git-setup.sh` / `45-github-profiles.sh` (multi-account git) · `48-win-folders.sh`
 - `50-shortcuts.sh` (helpers + `docs`) · `60-github-mcp.sh` (MCP token wrapper + `ghmcp`)
 - `new-project.sh` (uv scaffold: cu128 torch, ruff, direnv, Playwright, GPU verify)
 
