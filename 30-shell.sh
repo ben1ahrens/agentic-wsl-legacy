@@ -43,8 +43,19 @@ backup_file(){  # copy $1 into ~/.local/state/wsl2-dev/backups (newest 5 kept); 
 }
 
 ZSHRC="$HOME/.zshrc"
-MSTART="# >>> wsl2-dev-setup (managed by 30-shell.sh) >>>"
-MEND="# <<< wsl2-dev-setup (managed by 30-shell.sh) <<<"
+BLOCK_NAME="wsl2-dev-setup"
+MSTART="# >>> ${BLOCK_NAME} (managed by 30-shell.sh) >>>"
+MEND="# <<< ${BLOCK_NAME} (managed by 30-shell.sh) <<<"
+# Name-keyed strip: replaces blocks written under older script names and stops
+# at the next '# >>> ' opener (or EOF) if the end marker is missing.
+strip_block(){ # file → stdout minus the named block
+  awk -v sp="# >>> ${BLOCK_NAME} " -v ep="# <<< ${BLOCK_NAME} " '
+    k && index($0,ep)==1       {k=0; next}
+    k && index($0,"# >>> ")==1 {k=0; print; next}
+    k                          {next}
+    index($0,sp)==1            {k=1; next}
+    {print}' "$1"
+}
 
 printf '%s%sShell wiring (complementary)%s  %s(%s)%s\n' "$B" "$G" "$Z" "$D" \
   "$([ "$DRY" -eq 1 ] && echo 'DRY RUN — writes nothing' || echo 'live run')" "$Z"
@@ -260,8 +271,9 @@ DR
 
 assemble() {
   local tmp; tmp="$(mktemp)"
-  if [ -f "$ZSHRC" ] && grep -qF "$MSTART" "$ZSHRC"; then
-    awk -v s="$MSTART" -v e="$MEND" 'index($0,s){k=1} !k{print} index($0,e){k=0}' "$ZSHRC" > "$tmp"
+  if [ -f "$ZSHRC" ] && grep -q "^# >>> ${BLOCK_NAME} " "$ZSHRC"; then
+    grep -q "^# <<< ${BLOCK_NAME} " "$ZSHRC" || warn "existing ${BLOCK_NAME} block had no end marker — repairing"
+    strip_block "$ZSHRC" > "$tmp"
   elif [ -f "$ZSHRC" ]; then
     cp "$ZSHRC" "$tmp"
   fi
@@ -308,7 +320,7 @@ printf '%sComplementary block written — nothing applied to your current sessio
 echo
 note "Review:  sed -n '/>>> wsl2-dev-setup/,/<<< wsl2-dev-setup/p' ~/.zshrc"
 note "Apply:   exec zsh"
-note "Revert:  delete the lines between the wsl2-dev-setup markers (backup: ${BK:-n/a})"
+note "Revert:  delete the lines between the wsl2-dev-setup markers (backups: ~/.local/state/wsl2-dev/backups/)"
 echo
 warn "Behavioral changes from THIS block: node now resolves to Linux (fnm);"
 warn "fzf adds/ remaps Ctrl-R, Ctrl-T, Alt-C; history becomes shared across sessions (SHARE_HISTORY)."

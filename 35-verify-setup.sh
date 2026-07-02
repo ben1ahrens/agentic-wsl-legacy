@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# verify-setup.sh — Read-only health check for the WSL2 dev environment built by
-#                   10-wsl-base.sh, 20-tooling.sh, and 30-shell.sh.
+# 35-verify-setup.sh — Read-only health check for the WSL2 dev environment built by
+#                      10-wsl-base.sh, 20-tooling.sh, and 30-shell.sh.
 #
 # Checks, in order:
 #   A. apt packages           (10-wsl-base.sh)
@@ -14,8 +14,8 @@
 # Exit code: 0 if all CRITICAL checks pass, 1 if any critical check fails.
 #
 # Usage:
-#   ./verify-setup.sh                 # run all checks
-#   ./verify-setup.sh --open-browser  # also fire a real wopen test (pops your Windows browser)
+#   ./35-verify-setup.sh                 # run all checks
+#   ./35-verify-setup.sh --open-browser  # also fire a real wopen test (pops your Windows browser)
 #
 set -uo pipefail
 
@@ -72,8 +72,10 @@ check_bin "uv"         "$HOME/.local/bin/uv"        "--version"
 # Python versions managed by uv
 if [ -x "$HOME/.local/bin/uv" ]; then
   PYS="$("$HOME/.local/bin/uv" python list --only-installed 2>/dev/null || "$HOME/.local/bin/uv" python list 2>/dev/null)"
-  echo "$PYS" | grep -q '3\.12' && pass "uv Python 3.12 present" || warn "uv Python 3.12 not found"
-  echo "$PYS" | grep -q '3\.13' && pass "uv Python 3.13 present" || warn "uv Python 3.13 not found"
+  # fall back to the install dir so a failed query (e.g. sandboxed run) can't read as "not found"
+  has_uv_py(){ echo "$PYS" | grep -q "$1" || ls -d "$HOME/.local/share/uv/python/cpython-${1}"* >/dev/null 2>&1; }
+  has_uv_py 3.12 && pass "uv Python 3.12 present" || warn "uv Python 3.12 not found"
+  has_uv_py 3.13 && pass "uv Python 3.13 present" || warn "uv Python 3.13 not found"
 fi
 check_bin "pre-commit" "$HOME/.local/bin/pre-commit" "--version"
 # fnm (default vs legacy dir)
@@ -108,7 +110,8 @@ if [ -f "$ZRC" ]; then
   grep -q  'alias open="wopen"' "$ZRC" && pass 'alias open="wopen" present' || warn "open alias missing"
   grep -q  'BROWSER='           "$ZRC" && pass "BROWSER export present" || warn "BROWSER export missing"
   grep -q  'fzf --zsh >/dev/null' "$ZRC" && pass "fzf line is version-robust" || warn "fzf line may be the old bare version"
-  ls "$ZRC".bak.* >/dev/null 2>&1 && info "backup(s) found: $(ls "$ZRC".bak.* | wc -l)" || info "no ~/.zshrc backups found"
+  BDIR="${XDG_STATE_HOME:-$HOME/.local/state}/wsl2-dev/backups"
+  ls "$BDIR"/.zshrc.*.bak >/dev/null 2>&1 && info "backup(s) found: $(ls "$BDIR"/.zshrc.*.bak | wc -l) in ${BDIR/#$HOME/\~}" || info "no ~/.zshrc backups yet (created on first managed edit)"
 else
   fail "~/.zshrc does not exist"
 fi
@@ -180,8 +183,8 @@ else info "nvidia-smi not found (GPU driver is a Windows-side manual step)"; fi
 GN="$(git config --global user.name 2>/dev/null || true)"; GE="$(git config --global user.email 2>/dev/null || true)"
 if [ -n "$GN" ] && [ -n "$GE" ]; then info "git identity: $GN <$GE>"; else info "git identity not set yet (expected — that's the next step)"; fi
 
-# ============================================================ F. git-setup.sh pre-flight
-hdr "F. git-setup.sh pre-flight (1Password + agent bridge + gh)"
+# ============================================================ F. 40-git-setup.sh pre-flight
+hdr "F. 40-git-setup.sh pre-flight (1Password + agent bridge + gh)"
 # 1Password CLI — used to auto-pull each profile's public key
 if command -v op.exe >/dev/null 2>&1; then
   if timeout 8 op.exe --version >/dev/null 2>&1; then pass "op.exe reachable  ${DIM}$(op.exe --version 2>/dev/null | tr -d '\r')${Z}"

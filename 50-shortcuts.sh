@@ -56,8 +56,19 @@ backup_file(){  # copy $1 into ~/.local/state/wsl2-dev/backups (newest 5 kept); 
 
 ZSHRC="$HOME/.zshrc"
 LBIN="$HOME/.local/bin"
-MSTART="# >>> dev-shortcuts (managed by 50-shortcuts.sh) >>>"
-MEND="# <<< dev-shortcuts (managed by 50-shortcuts.sh) <<<"
+BLOCK_NAME="dev-shortcuts"
+MSTART="# >>> ${BLOCK_NAME} (managed by 50-shortcuts.sh) >>>"
+MEND="# <<< ${BLOCK_NAME} (managed by 50-shortcuts.sh) <<<"
+# Name-keyed strip: replaces blocks written under older script names and stops
+# at the next '# >>> ' opener (or EOF) if the end marker is missing.
+strip_block(){ # file → stdout minus the named block
+  awk -v sp="# >>> ${BLOCK_NAME} " -v ep="# <<< ${BLOCK_NAME} " '
+    k && index($0,ep)==1       {k=0; next}
+    k && index($0,"# >>> ")==1 {k=0; print; next}
+    k                          {next}
+    index($0,sp)==1            {k=1; next}
+    {print}' "$1"
+}
 
 printf '%s%sWorkflow shortcuts%s  %s(%s)%s\n' "$B" "$G" "$Z" "$D" \
   "$([ "$DRY" -eq 1 ] && echo 'DRY RUN — writes nothing' || echo 'live run')" "$Z"
@@ -204,8 +215,9 @@ DOCS
 # ---------- assemble ~/.zshrc (strip old block, append fresh) ----------
 assemble() {
   local tmp; tmp="$(mktemp)"
-  if [ -f "$ZSHRC" ] && grep -qF "$MSTART" "$ZSHRC"; then
-    awk -v s="$MSTART" -v e="$MEND" 'index($0,s){k=1} !k{print} index($0,e){k=0}' "$ZSHRC" > "$tmp"
+  if [ -f "$ZSHRC" ] && grep -q "^# >>> ${BLOCK_NAME} " "$ZSHRC"; then
+    grep -q "^# <<< ${BLOCK_NAME} " "$ZSHRC" || warn "existing ${BLOCK_NAME} block had no end marker — repairing"
+    strip_block "$ZSHRC" > "$tmp"
   elif [ -f "$ZSHRC" ]; then
     cp "$ZSHRC" "$tmp"
   fi
