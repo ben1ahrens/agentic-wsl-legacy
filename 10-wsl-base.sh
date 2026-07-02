@@ -6,6 +6,7 @@
 #   1. apt update + full-upgrade
 #   2. install the essential dev package set
 #        build-essential cmake pkg-config htop tree zip ca-certificates socat bubblewrap
+#        mesa-utils glmark2   (GL diagnostics: glxinfo renderer check + benchmark for WSLg)
 #   3. mask getty@tty1.service (cosmetic; silences the harmless failed-unit noise in WSL)
 #
 # Properties:
@@ -57,7 +58,7 @@ else
 fi
 
 APT="$SUDO env DEBIAN_FRONTEND=noninteractive apt-get"
-PKGS=(build-essential cmake pkg-config htop tree zip ca-certificates socat bubblewrap)
+PKGS=(build-essential cmake pkg-config htop tree zip ca-certificates socat bubblewrap mesa-utils glmark2)
 
 printf '%s%sWSL2 base setup%s  %s(%s)%s\n' "$B" "$G" "$Z" "$D" \
   "$([ "$DRY_RUN" -eq 1 ] && echo 'DRY RUN — nothing will be changed' || echo 'live run')" "$Z"

@@ -9,6 +9,11 @@
 #   C. shell configuration    (30-shell.sh)    — verified by inspecting ~/.zshrc + files
 #   D. LIVE interactive shell (zsh -ic)        — what your real shell actually resolves
 #   E. interop & manual steps (informational)  — 1Password/Docker/GPU/git identity
+#   F. 40-git-setup.sh pre-flight              — 1Password CLI, agent pipe, npiperelay, gh
+#   G. ML & GPU layer         — GPU visible, torch imports in a scaffolded project, NVIDIA runtime
+#   H. agent fleet            — claude/codex/claude-science, sandbox prereqs (bwrap, AppArmor userns)
+#   I. GUI / WSLg             — WSLg present, GL renderer (D3D12 GPU path vs llvmpipe)
+#   J. managed-block integrity & disk — every '# >>>' opener has its '# <<<' closer
 #
 # READ-ONLY: makes no changes to anything. Safe to run any time, from any folder.
 # Exit code: 0 if all CRITICAL checks pass, 1 if any critical check fails.
@@ -22,7 +27,7 @@ set -uo pipefail
 OPEN_BROWSER=0
 for a in "$@"; do case "$a" in
   --open-browser) OPEN_BROWSER=1 ;;
-  -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+  -h|--help) sed -n '2,/^set /{/^set /!p;}' "$0"; exit 0 ;;
   *) echo "Unknown option: $a" >&2; exit 2 ;;
 esac; done
 
@@ -49,7 +54,7 @@ check_bin(){ # label, path-or-name, version-args(default --version), critical(1/
 }
 
 printf '%s%sWSL2 dev environment — verification%s\n' "$BLD" "$GREEN" "$Z"
-info "read-only; checks steps 10/20/30 + git-setup pre-flight. $([ "$OPEN_BROWSER" -eq 1 ] && echo 'browser test ENABLED' || echo '(use --open-browser for a live browser test)')"
+info "read-only; sections A–F: base env + git pre-flight · G–J: ML/GPU, agent fleet, GUI, block integrity. $([ "$OPEN_BROWSER" -eq 1 ] && echo 'browser test ENABLED' || echo '(use --open-browser for a live browser test)')"
 
 # locate brew (PATH-independent, since a bash subshell hasn't sourced .zshrc)
 BREW=""
@@ -212,6 +217,78 @@ command -v socat >/dev/null 2>&1 && pass "socat present (WSL side of bridge)" ||
 # gh — optional, for PRs / repo management
 if command -v gh >/dev/null 2>&1; then pass "gh present  ${DIM}$(gh --version 2>/dev/null | head -1)${Z}"
 else info "gh (GitHub CLI) not installed — optional; 'brew install gh' if you want it (SSH already covers push/pull)"; fi
+
+# ============================================================ G. ML & GPU layer
+hdr "G. ML & GPU layer"
+if command -v nvidia-smi >/dev/null 2>&1; then
+  GPULINE="$(timeout 10 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null | head -1)"
+  if [ -n "$GPULINE" ]; then pass "GPU visible: $GPULINE"
+  else warn "nvidia-smi present but no GPU reported (sandboxed run, or driver issue)"; fi
+else info "nvidia-smi not found (GPU driver is a Windows-side manual step)"; fi
+# torch in the newest scaffolded project, if one exists (created by new-project.sh)
+TP=""
+for d in "$HOME"/projects/*/*/scripts/verify_gpu.py; do [ -f "$d" ] && TP="$(dirname "$(dirname "$d")")"; done
+if [ -n "$TP" ] && [ -d "$TP/.venv" ]; then
+  TORCHV="$(cd "$TP" && timeout 90 "$HOME/.local/bin/uv" run --no-sync python -c 'import torch; print(torch.__version__, "cuda", torch.version.cuda, "available", torch.cuda.is_available())' 2>/dev/null)"
+  case "$TORCHV" in
+    *"available True"*)  pass "torch + CUDA live in $(basename "$TP")  ${DIM}$TORCHV${Z}" ;;
+    "")                  warn "torch didn't import in $(basename "$TP") (venv not synced?)" ;;
+    *)                   warn "torch imports but CUDA unavailable in $(basename "$TP"): $TORCHV" ;;
+  esac
+elif [ -n "$TP" ]; then info "scaffolded project $(basename "$TP") found but not synced yet (cd + uv sync)"
+else info "no scaffolded torch project yet — new-project.sh <name> creates one"; fi
+# GPU containers (read-only proxy: is the NVIDIA runtime registered with dockerd?)
+if command -v docker >/dev/null 2>&1 && timeout 6 docker info >/dev/null 2>&1; then
+  if timeout 10 docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+    pass "docker: NVIDIA runtime registered (GPU containers ready; smoke: docker run --rm --gpus all ubuntu nvidia-smi)"
+  else info "docker up, but no NVIDIA runtime registered (Docker Desktop → GPU support)"; fi
+fi
+[ -d "$HOME/.cache/huggingface" ] && info "HF cache: $(du -sh "$HOME/.cache/huggingface" 2>/dev/null | cut -f1) in ~/.cache/huggingface"
+
+# ============================================================ H. agent fleet
+hdr "H. agent fleet (Claude Code · Codex · Claude Science)"
+command -v claude >/dev/null 2>&1 && pass "claude on PATH  ${DIM}$(timeout 10 claude --version 2>/dev/null | head -1)${Z}" || info "claude (Claude Code) not installed"
+command -v codex  >/dev/null 2>&1 && pass "codex on PATH  ${DIM}$(timeout 10 codex --version 2>/dev/null | tail -1)${Z}" || info "codex CLI not installed"
+[ -x "$HOME/.local/bin/claude-science" ] && pass "claude-science installed (~/.local/bin)" || info "claude-science not installed — run 70-claude-science.sh"
+# sandbox prerequisites — Claude Code's native sandbox and Claude Science both run on bubblewrap
+BWV="$(bwrap --version 2>/dev/null | awk '{print $2}')"
+if [ -n "$BWV" ]; then
+  case "$BWV" in 0.[0-7].*) warn "bubblewrap $BWV < 0.8 — Claude Science's sandbox needs >= 0.8" ;;
+                 *)         pass "bubblewrap $BWV (>= 0.8 — sandbox-ready)" ;; esac
+fi
+AAUSERNS="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)"
+case "$AAUSERNS" in
+  0) pass "AppArmor allows unprivileged user namespaces (sandboxes can start)" ;;
+  1) warn "kernel.apparmor_restrict_unprivileged_userns=1 — bubblewrap-based sandboxes may need an AppArmor profile" ;;
+  *) info "couldn't read the AppArmor userns sysctl (skipped)" ;;
+esac
+grep -q "^# >>> github-mcp " "$HOME/.zshrc" 2>/dev/null && pass "github-mcp block installed (claude wrapper + ghmcp)" || info "github-mcp block not installed — run 60-github-mcp.sh"
+[ -f "$HOME/.codex/config.toml" ] && pass "codex config present (~/.codex/config.toml)" || info "codex not configured yet — run 65-agent-fleet.sh"
+
+# ============================================================ I. GUI / WSLg
+hdr "I. GUI / WSLg (informational)"
+[ -d /mnt/wslg ] && pass "WSLg present (/mnt/wslg)" || info "WSLg not present — GUI apps won't display"
+if command -v glxinfo >/dev/null 2>&1; then
+  REND="$(timeout 10 glxinfo -B 2>/dev/null | grep -i 'renderer string' | head -1 | sed 's/^ *//')"
+  case "$REND" in
+    *D3D12*)    pass "OpenGL renders on the GPU (D3D12 path): ${REND#*: }" ;;
+    *llvmpipe*) warn "OpenGL is software-rendered (llvmpipe) — the GPU GL path isn't active" ;;
+    "")         info "glxinfo produced no output (no display in this context?)" ;;
+    *)          info "GL renderer: $REND" ;;
+  esac
+else info "glxinfo not installed (apt: mesa-utils) — GL check skipped"; fi
+
+# ============================================================ J. managed-block integrity & disk
+hdr "J. managed-block integrity & disk"
+if [ -f "$HOME/.zshrc" ]; then
+  BADBLK=0; NBLK=0
+  while IFS= read -r n; do
+    NBLK=$((NBLK+1))
+    grep -q "^# <<< $n " "$HOME/.zshrc" || { warn "block '$n' has an opener but no end marker — re-run its owning script to repair"; BADBLK=1; }
+  done < <(grep -oP '^# >>> \K[^ ]+' "$HOME/.zshrc" | sort -u)
+  [ "$BADBLK" -eq 0 ] && [ "$NBLK" -gt 0 ] && pass "all $NBLK managed blocks have matching end markers"
+fi
+info "disk: $(df -h "$HOME" 2>/dev/null | awk 'NR==2{print $3" used / "$4" free ("$5")"}')  ·  uv cache: $(du -sh "$HOME/.cache/uv" 2>/dev/null | cut -f1 || echo 0)"
 
 # optional live browser test
 if [ "$OPEN_BROWSER" -eq 1 ]; then
