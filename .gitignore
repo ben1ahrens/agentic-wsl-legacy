@@ -1,0 +1,22 @@
+# Sandbox credential-mask artifacts — 0-byte /dev/null character devices (owner
+# "nobody") leaked into this directory by a sandboxed agent session on 2026-07-02.
+# They contain nothing and are safe to delete manually; ignored here so they can
+# never break `git add -A` again. Remove an entry if this repo ever gains a real
+# file by one of these names (e.g. a repo-level .mcp.json).
+# .claude/ currently holds only session-local state (settings.local.json,
+# .cc-writes) and more of the same artifacts. Children are ignored individually
+# (not the dir itself) so real content (e.g. skills/) can be re-included later
+# with a `!` negation.
+/.claude/*
+
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.idea
+/.mcp.json
+/.profile
+/.ripgreprc
+/.vscode
+/.zprofile
+/.zshrc
