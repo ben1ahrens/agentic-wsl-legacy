@@ -95,8 +95,6 @@ SANDBOX_JSON='{
   },
   "credentials": {
     "files": [
-      { "path": "~/.ssh",       "mode": "deny" },
-      { "path": "~/.aws",       "mode": "deny" },
       { "path": "~/.config/gh", "mode": "deny" }
     ],
     "envVars": [
@@ -116,6 +114,11 @@ if [ "$DRY" -eq 1 ]; then
   printf '%s--- would merge into ~/.claude/settings.json ---%s\n' "$D" "$Z"
   diff <(jq -S . <<<"$CUR") <(jq -S . <<<"$MERGED") | sed 's/^/  /' || true
 else
+  # Deny-masked paths must EXIST as real dirs or bwrap fails to start any command
+  # (it mounts tmpfs over each one; symlinks into /mnt/c break it). On this machine
+  # only ~/.config/gh holds an on-disk credential — SSH keys live in 1Password
+  # (masking ~/.ssh would only hide the agent socket) and ~/.aws is a Windows symlink.
+  mkdir -p "$HOME/.config/gh"
   backup_file "$CSET"; mkdir -p "$(dirname "$CSET")"
   printf '%s\n' "$MERGED" > "$CSET" && ok "sandbox enabled + credential blocking + protect-hook registered"
 fi
