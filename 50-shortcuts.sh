@@ -3,9 +3,8 @@
 # 50-shortcuts.sh — Install workflow shortcuts for the WSL2 dev environment.
 #
 # Adds a managed '# >>> dev-shortcuts >>>' block to ~/.zshrc (helper functions) and
-# installs a standalone 'docs' command into ~/.local/bin. Complements the existing
-# blocks (comfort-shell, wsl2-dev-setup, git-profiles, gh-profiles, win-shortcuts) —
-# it touches ONLY its own block and leaves the others alone.
+# installs standalone commands into ~/.local/bin: docs, notify, lab, onboard.
+# Complements the other managed blocks — it touches ONLY its own block.
 #
 # What you get:
 #   1Password   opget <ref>      print a secret to stdout (CR-stripped)
@@ -13,9 +12,14 @@
 #               opadd <title>    create an API credential (hidden prompt — nothing in history)
 #   Project env openv            render ./.env from ./.env.tpl (one Hello prompt, once/session)
 #               oprun <cmd...>   run a process with secrets injected — zero plaintext on disk
+#   Research    train <cmd...>   run in a detached tmux session; Windows toast when it finishes
+#               nb               JupyterLab for the current uv project (opens in Windows browser)
 #   Nav         mkcd <dir>       mkdir -p + cd
 #               pj               fuzzy-jump to any project under ~/projects (needs fzf)
-#   Docs        docs [query]     condensed reference of ALL your custom commands
+#   Installed   docs [query]     condensed reference of ALL your custom commands
+#   (~/.local/  notify [t] [m]   Windows toast from any script, hook, or tmux session
+#    bin)       lab              one-screen dashboard: GPU, disk, caches, sessions, docker
+#               onboard <repo>   clone into the current profile dir + auto-set-up its env
 #
 # Properties: idempotent (re-run replaces its block), backs up ~/.zshrc first, --dry-run safe.
 # Reads/writes secrets only via op.exe; never writes a private key or token to disk itself.
@@ -122,6 +126,20 @@ pj() {   # fuzzy-jump to any project under ~/projects (complements zoxide's z)
   command -v fzf >/dev/null 2>&1 || { echo "pj: fzf not found" >&2; return 1; }
   local d; d="$(find "$HOME/projects" -mindepth 1 -maxdepth 2 -type d 2>/dev/null | fzf)" && cd "$d"
 }
+
+# --- research workflow ---
+train() {  # train <cmd...> — run in a detached tmux session; Windows toast when it finishes
+  command -v tmux >/dev/null 2>&1 || { echo "train: tmux not installed" >&2; return 1; }
+  [ $# -gt 0 ] || { echo "usage: train <command...>   (tmux session + toast on exit)" >&2; return 1; }
+  local name="train-$(date +%H%M%S)"
+  tmux new-session -d -s "$name" -c "$PWD" \
+    "$* ; rc=\$?; notify \"train: $name\" \"exit \$rc — ${PWD##*/}\"; printf '\n[train] finished (exit %s) — press enter to close ' \"\$rc\"; read -r _"
+  echo "→ running in tmux session '$name'   (watch: tmux attach -t $name · list: tmux ls)"
+}
+nb() {  # JupyterLab for the current uv project — opens in the Windows browser (BROWSER=wopen)
+  [ -f pyproject.toml ] || { echo "nb: run inside a uv project (no pyproject.toml here)" >&2; return 1; }
+  uv run --with jupyter jupyter lab
+}
 # <<< dev-shortcuts (managed by 50-shortcuts.sh) <<<
 BLK
 )"
@@ -155,10 +173,21 @@ PROJECT ENVIRONMENT                                           [dev-shortcuts]
   openv                           render ./.env from ./.env.tpl, once per session
   oprun <cmd...>                  run <cmd> with .env.tpl secrets injected (zero on disk)
 
-GITHUB / CLAUDE MCP                                 [github-mcp / gh-profiles]
-  claude                          launch Claude; injects the project account's GitHub PAT
-                                  from 1Password (one Hello prompt). --version / update /
-                                  config / doctor / mcp* skip the token fetch.
+RESEARCH WORKFLOW                                             [dev-shortcuts]
+  train <cmd...>                  run in a detached tmux session; Windows toast on finish
+  nb                              JupyterLab for the current uv project (Windows browser)
+  notify [title] [msg]            Windows toast from any script, hook, or tmux session
+  lab                             dashboard: GPU, disk, caches, tmux, docker, Claude Science
+
+AGENT FLEET                            [github-mcp / agent-fleet / claude-science]
+  claude                          launch Claude Code; injects the project account's GitHub
+                                  PAT from 1Password (one Hello prompt). --version / update /
+                                  config / doctor skip the token fetch.
+  codexr ["question"]             Codex as read-only reviewer — no args: review the
+                                  uncommitted diff (sandboxed; it can never write)
+  science [cmd]                   Claude Science workbench — start the daemon + open the UI
+                                  in the Windows browser (status · url · logs · stop · update)
+  ghmcp [profile|all]             validate GitHub-MCP tokens (account, expiry, scopes)
   ghwho                           check gh's active account matches the current folder
 
 NAVIGATION                                     [git-profiles / dev-shortcuts]
@@ -186,9 +215,13 @@ GIT & MODERN CLI                                            [comfort-shell]
   (commit identity, signing & SSH key switch automatically by ~/projects/<profile>)
 
 PROJECT SCAFFOLDING & HEALTH
-  new-project.sh <name> [flags]   scaffold a uv project (cu128 torch, ruff, direnv,
-                                  Playwright); run inside a profile dir for the right identity
-  35-verify-setup.sh              read-only health check of the whole environment
+  new-project.sh <name> [flags]   scaffold a uv project (cu130 torch, ruff, direnv, Playwright,
+                                  agent config; --ml adds HF stack + trackio + notebooks);
+                                  run inside a profile dir for the right identity
+  onboard <url|org/repo> [dir]    clone a third-party repo into this profile dir and
+                                  auto-set-up its env (uv/npm/bun, direnv, pre-commit)
+  35-verify-setup.sh              read-only health check (A-J: base, git, ML/GPU, agents,
+                                  GUI, managed-block integrity)
   docs [query]                    this reference
 
 Windows Hello prompts once per session; 1Password's ~10-min window means
@@ -210,6 +243,105 @@ else
   fi
 fi
 DOCS
+)"
+
+# ---------- the notify command (installed to ~/.local/bin/notify) ----------
+# Standalone so tmux sessions, Claude hooks, and plain sh scripts can all call it.
+NOTIFY="$(cat <<'NTF'
+#!/usr/bin/env bash
+# notify [title] [message] — Windows toast from WSL (PowerShell WinRT; nothing to install).
+set -uo pipefail
+case "${1:-}" in -h|--help) echo "usage: notify [title] [message]"; exit 0 ;; esac
+title="${1:-WSL}"; msg="${2:-done}"
+# strip characters that would break the toast XML
+title="${title//[<>&\"\']/ }"; msg="${msg//[<>&\"\']/ }"
+command -v powershell.exe >/dev/null 2>&1 || exit 0
+powershell.exe -NoProfile -Command "
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+\$x = New-Object Windows.Data.Xml.Dom.XmlDocument
+\$x.LoadXml(\"<toast><visual><binding template='ToastGeneric'><text>$title</text><text>$msg</text></binding></visual></toast>\")
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('WSL').Show((New-Object Windows.UI.Notifications.ToastNotification \$x))
+" >/dev/null 2>&1 &
+exit 0
+NTF
+)"
+
+# ---------- the lab command (installed to ~/.local/bin/lab) ----------
+LAB="$(cat <<'LABEOF'
+#!/usr/bin/env bash
+# lab — one-screen status dashboard: GPU, disk, caches, tmux sessions, docker, Claude Science.
+set -uo pipefail
+case "${1:-}" in -h|--help) sed -n '2,2p' "$0"; exit 0 ;; esac
+B=$'\033[1m'; D=$'\033[2m'; Z=$'\033[0m'; [ -t 1 ] || { B=""; D=""; Z=""; }
+echo "${B}── lab · $(date '+%a %H:%M') ──${Z}"
+if command -v nvidia-smi >/dev/null 2>&1; then
+  timeout 8 nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu \
+    --format=csv,noheader 2>/dev/null \
+    | awk -F', ' '{printf "GPU   %s — %s / %s · %s util · %s°C\n",$1,$2,$3,$4,$5}'
+fi
+df -h "$HOME" 2>/dev/null | awk 'NR==2{printf "disk  %s used / %s free (%s)\n",$3,$4,$5}'
+printf 'cache uv %s · hf %s\n' \
+  "$(du -sh "$HOME/.cache/uv" 2>/dev/null | cut -f1 || echo 0)" \
+  "$(du -sh "$HOME/.cache/huggingface" 2>/dev/null | cut -f1 || echo 0)"
+if command -v tmux >/dev/null 2>&1 && tmux ls >/dev/null 2>&1; then
+  echo "tmux  $(tmux ls 2>/dev/null | awk -F: '{printf "%s ",$1}')"
+else echo "tmux  ${D}no sessions${Z}"; fi
+if command -v docker >/dev/null 2>&1 && timeout 4 docker info >/dev/null 2>&1; then
+  echo "dock  $(docker ps -q 2>/dev/null | wc -l | tr -d ' ') container(s) running"
+else echo "dock  ${D}daemon not running${Z}"; fi
+if [ -x "$HOME/.local/bin/claude-science" ]; then
+  cs="$(timeout 6 "$HOME/.local/bin/claude-science" status 2>/dev/null | grep -o '"running": *[a-z]*' | awk '{print $2}')"
+  [ "${cs:-}" = "true" ] && echo "sci   claude-science running" || echo "sci   ${D}claude-science stopped (launch: science)${Z}"
+fi
+echo "proj  recent: $(ls -td "$HOME"/projects/*/*/ 2>/dev/null | head -3 | xargs -r -n1 basename 2>/dev/null | tr '\n' ' ')"
+echo "${D}more: docs · 35-verify-setup.sh · ghmcp all · train <cmd> · nb · science${Z}"
+LABEOF
+)"
+
+# ---------- the onboard command (installed to ~/.local/bin/onboard) ----------
+ONBOARD="$(cat <<'ONB'
+#!/usr/bin/env bash
+# onboard <url|org/repo> [dir] — clone a repo into the CURRENT profile dir and set up its env.
+# Detects the stack (uv/pyproject, requirements.txt, package.json), installs deps, wires
+# direnv without dirtying the repo (.git/info/exclude), and reports the inherited identity.
+set -uo pipefail
+url="${1:-}"; case "$url" in ""|-h|--help) sed -n '2,4p' "$0"; exit 0 ;; esac
+case "$PWD/" in "$HOME/projects/"*) ;; *)
+  echo "onboard: run from inside a profile dir (~/projects/<profile>/...) so git identity is inherited" >&2; exit 1 ;;
+esac
+case "$url" in
+  http*|git@*) ;;
+  */*) url="git@github.com:${url}.git" ;;   # org/repo shorthand; per-profile insteadOf rewrites the host
+  *) echo "onboard: expected a URL or org/repo" >&2; exit 1 ;;
+esac
+dir="${2:-$(basename "$url" .git)}"
+[ -e "$dir" ] && { echo "onboard: ./$dir already exists" >&2; exit 1; }
+echo "→ cloning $url"
+git clone "$url" "$dir" || exit 1
+cd "$dir" || exit 1
+echo "→ identity: $(git config user.name 2>/dev/null) <$(git config user.email 2>/dev/null)> (from this directory's profile)"
+py=0
+if [ -f pyproject.toml ] || [ -f uv.lock ]; then
+  py=1; echo "→ python (uv project): uv sync"
+  uv sync || echo "! uv sync failed — inspect manually"
+elif [ -f requirements.txt ]; then
+  py=1; echo "→ python (requirements.txt): uv venv + install"
+  { uv venv && uv pip install -r requirements.txt; } || echo "! install failed — inspect manually"
+fi
+if [ -f package.json ]; then
+  if [ -f bun.lock ] || [ -f bun.lockb ]; then echo "→ node (bun): bun install"; bun install || true
+  else echo "→ node (npm): npm install"; npm install || true; fi
+fi
+if [ "$py" -eq 1 ] && [ ! -f .envrc ]; then
+  printf 'layout uv\ndotenv_if_exists .env\n' > .envrc
+  echo ".envrc" >> .git/info/exclude
+  command -v direnv >/dev/null 2>&1 && direnv allow . >/dev/null 2>&1
+  echo "→ direnv wired (.envrc kept out of the repo via .git/info/exclude)"
+fi
+[ -f .pre-commit-config.yaml ] && command -v pre-commit >/dev/null 2>&1 \
+  && pre-commit install >/dev/null 2>&1 && echo "→ pre-commit hooks installed"
+echo "✓ onboarded ./$dir — cd '$dir' to start"
+ONB
 )"
 
 # ---------- assemble ~/.zshrc (strip old block, append fresh) ----------
@@ -236,7 +368,10 @@ if [ "$DRY" -eq 1 ]; then
     note "~/.zshrc does not exist yet; the block above would be appended."
   fi
   hdr "files that would be created"
-  note "$LBIN/docs  (condensed reference of your custom commands)"
+  note "$LBIN/docs     (condensed reference of your custom commands)"
+  note "$LBIN/notify   (Windows toast from WSL)"
+  note "$LBIN/lab      (status dashboard)"
+  note "$LBIN/onboard  (third-party repo onboarder)"
   echo; printf '%sDry run complete.%s Re-run without --dry-run to apply.\n' "$G$B" "$Z"; exit 0
 fi
 
@@ -248,16 +383,21 @@ hdr "write dev-shortcuts block to ~/.zshrc"
 assemble > "$ZSHRC.new" && mv "$ZSHRC.new" "$ZSHRC"
 ok "block written (between markers; your other blocks left intact)"
 
-hdr "install docs command"
+hdr "install commands (docs · notify · lab · onboard)"
 mkdir -p "$LBIN"
-[ -f "$LBIN/docs" ] && backup_file "$LBIN/docs"
-printf '%s\n' "$DOCS" > "$LBIN/docs"; chmod +x "$LBIN/docs"
-ok "$LBIN/docs installed (condensed command reference)"
+install_bin(){ # name, content
+  [ -f "$LBIN/$1" ] && backup_file "$LBIN/$1"
+  printf '%s\n' "$2" > "$LBIN/$1"; chmod +x "$LBIN/$1"; ok "$LBIN/$1 installed"
+}
+install_bin docs "$DOCS"
+install_bin notify "$NOTIFY"
+install_bin lab "$LAB"
+install_bin onboard "$ONBOARD"
 case ":$PATH:" in *":$LBIN:"*) : ;; *) warn "$LBIN is not on PATH in this shell — your wsl2-dev-setup block adds it for zsh";; esac
 
 hdr "done"
 printf '%sShortcuts installed — apply to your current shell with: %sexec zsh%s\n' "$G$B" "$Z$B" "$Z"
 echo
-note "Try:  docs            (full command reference)      docs op   (filter to matching commands)"
+note "Try:  docs   ·   lab   ·   train uv run python train.py   ·   onboard org/repo"
 note "      opget op://Private/OpenAI/credential          opadd \"New API key\""
-note "Revert: delete the lines between the dev-shortcuts markers in ~/.zshrc, and rm $LBIN/docs"
+note "Revert: delete the dev-shortcuts block in ~/.zshrc; rm $LBIN/{docs,notify,lab,onboard}"
