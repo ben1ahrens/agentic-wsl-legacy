@@ -3,17 +3,21 @@
 # new-project.sh — Scaffold a uv-managed Python project, wired for this WSL2 setup.
 #
 # Produces (in ./<name>): a pyproject.toml with PyTorch pinned to the CUDA wheel index
-# (cu128 by default — correct for RTX 50-series Blackwell on a CUDA 12.8+ driver), a
-# dev dependency group (ruff, pre-commit, pytest, pytest-playwright), direnv + 1Password
-# secrets scaffolding, VS Code settings, local ruff pre-commit hooks, and verification
-# scripts for the GPU (torch sees sm_120 and runs a real kernel) and Playwright.
+# (cu130 by default — the current stable index, with native Blackwell sm_120 kernels;
+# cu128/cu129 are frozen at torch 2.11.x), a dev dependency group (ruff, pre-commit,
+# pytest, pytest-playwright), direnv + 1Password secrets scaffolding, VS Code settings,
+# local ruff pre-commit hooks, agent-fleet config (AGENTS.md shared brief, CLAUDE.md,
+# Claude Code hooks, project .mcp.json), and verification scripts for the GPU
+# (torch sees sm_120 and runs a real kernel) and Playwright.
 #
 # Run it from INSIDE a profile folder (e.g. ~/projects/work) so the new repo inherits that
 # git identity automatically (directory-based includeIf), then it git-inits the project.
 #
 # Usage:
 #   ./new-project.sh <name>                 # full scaffold + install + verify
-#   ./new-project.sh <name> --cuda cu129    # match a 12.9 driver exactly (default cu128)
+#   ./new-project.sh <name> --ml            # + HF stack (transformers/datasets/accelerate),
+#                                           #   trackio experiment tracking, ipykernel (notebooks)
+#   ./new-project.sh <name> --cuda cu126    # older driver (default cu130; cu128/cu129 frozen at torch 2.11)
 #   ./new-project.sh <name> --no-torch      # skip PyTorch
 #   ./new-project.sh <name> --no-playwright # skip Playwright
 #   ./new-project.sh <name> --python 3.12   # default 3.13
@@ -24,10 +28,11 @@
 #
 set -uo pipefail
 
-NAME=""; PYVER="3.13"; CUDA="cu128"; TORCH=1; PLAYWRIGHT=1; INSTALL=1; DRY=0; MCP=0; MCP_REF=""
+NAME=""; PYVER="3.13"; CUDA="cu130"; TORCH=1; PLAYWRIGHT=1; INSTALL=1; DRY=0; MCP=0; MCP_REF=""; ML=0
 while [ $# -gt 0 ]; do case "$1" in
   --python) PYVER="${2:-}"; shift 2 ;;
   --cuda) CUDA="${2:-}"; shift 2 ;;
+  --ml) ML=1; shift ;;
   --no-torch) TORCH=0; shift ;;
   --no-playwright) PLAYWRIGHT=0; shift ;;
   --no-install) INSTALL=0; shift ;;
@@ -59,7 +64,7 @@ mcp_summary(){
 
 [ -z "$NAME" ] && ask NAME "Project name" ""
 [ -n "$NAME" ] || die "a project name is required"
-case "$CUDA" in cpu|cu118|cu126|cu128|cu129|cu130) ;; *) die "--cuda must be one of: cpu cu118 cu126 cu128 cu129 cu130" ;; esac
+case "$CUDA" in cpu|cu118|cu126|cu128|cu129|cu130|cu132) ;; *) die "--cuda must be one of: cpu cu118 cu126 cu128 cu129 cu130 cu132" ;; esac
 # normalized distribution name for pyproject
 PKG="$(printf '%s' "$NAME" | tr '[:upper:] ' '[:lower:]-' | tr -cs 'a-z0-9-' '-' | sed 's/^-//; s/-$//')"
 ROOT="$NAME"
@@ -67,7 +72,8 @@ MCP_REF_PLACEHOLDER=0
 if [ "$MCP" -eq 1 ] && [ -z "$MCP_REF" ]; then MCP_REF="op://VAULT/ITEM/token"; MCP_REF_PLACEHOLDER=1; fi
 
 printf '%s%sNew project: %s%s  %s\n' "$B" "$G" "$NAME" "$Z" \
-  "${D}python ${PYVER}$([ "$TORCH" -eq 1 ] && echo " · torch ${CUDA}")$([ "$PLAYWRIGHT" -eq 1 ] && echo " · playwright")$([ "$MCP" -eq 1 ] && echo " · github-mcp")$([ "$DRY" -eq 1 ] && echo " · DRY RUN")${Z}"
+  "${D}python ${PYVER}$([ "$TORCH" -eq 1 ] && echo " · torch ${CUDA}")$([ "$ML" -eq 1 ] && echo " · ml (HF + trackio)")$([ "$PLAYWRIGHT" -eq 1 ] && echo " · playwright")$([ "$MCP" -eq 1 ] && echo " · github-mcp")$([ "$DRY" -eq 1 ] && echo " · DRY RUN")${Z}"
+case "$CUDA" in cu118|cu126|cu128|cu129) info "note: the $CUDA wheel index is legacy — it stopped receiving new torch builds (cu130 is the current stable)";; esac
 
 # tool checks (these come from your shell PATH; the script inherits it when run from zsh)
 if [ "$INSTALL" -eq 1 ] && [ "$DRY" -eq 0 ]; then
@@ -88,14 +94,21 @@ hdr "scaffold files"
 # ---------- pyproject.toml ----------
 DEPS=""; TORCH_INDEX=""; TORCH_SOURCES=""
 if [ "$TORCH" -eq 1 ]; then
-  DEPS=$'\n    "torch>=2.9.1",\n    "torchvision>=0.24.1",'
+  case "$CUDA" in
+    cu118|cu126|cu128|cu129) DEPS=$'\n    "torch>=2.9.1",\n    "torchvision",' ;;  # legacy indexes cap at torch 2.11.x
+    *)                       DEPS=$'\n    "torch>=2.12",\n    "torchvision",'  ;;
+  esac
   if [ "$CUDA" != cpu ]; then
     TORCH_INDEX=$'\n[[tool.uv.index]]\nname = "pytorch-'"$CUDA"$'"\nurl = "https://download.pytorch.org/whl/'"$CUDA"$'"\nexplicit = true\n'
     TORCH_SOURCES=$'\n[tool.uv.sources]\ntorch = [{ index = "pytorch-'"$CUDA"$'", marker = "sys_platform == \'linux\' or sys_platform == \'win32\'" }]\ntorchvision = [{ index = "pytorch-'"$CUDA"$'", marker = "sys_platform == \'linux\' or sys_platform == \'win32\'" }]\n'
   fi
 fi
+if [ "$ML" -eq 1 ]; then
+  DEPS="$DEPS"$'\n    "transformers",\n    "datasets",\n    "accelerate",\n    "trackio",'
+fi
 DEVGROUP='"ruff", "pre-commit", "pytest"'
 [ "$PLAYWRIGHT" -eq 1 ] && DEVGROUP="$DEVGROUP"', "pytest-playwright"'
+[ "$ML" -eq 1 ] && DEVGROUP="$DEVGROUP"', "ipykernel"'
 
 write "pyproject.toml" "[project]
 name = \"$PKG\"
@@ -145,6 +158,9 @@ test-results/
 playwright-report/
 .cache/
 
+# Claude Code per-machine settings (project settings + hooks ARE committed)
+.claude/settings.local.json
+
 # OS / editor
 .DS_Store"
 
@@ -174,23 +190,30 @@ write ".env.example" "# Non-secret example of the variables this project expects
 # OPENAI_API_KEY=
 # DATABASE_URL="
 
-# ---------- GitHub MCP server (optional) ----------
-# Remote HTTP server (no Docker). The token is NOT stored here: Claude Code expands
-# \${GITHUB_PERSONAL_ACCESS_TOKEN} from the environment, which .envrc resolves from 1Password.
-# Safe to commit — it references the token, it doesn't contain it.
+# ---------- MCP servers ----------
+# Playwright (browser automation) is standard — stdio via npx, no secrets involved.
+# --github-mcp adds the remote GitHub server; its token is NOT stored here: Claude Code
+# expands \${GITHUB_PERSONAL_ACCESS_TOKEN} from the environment, which .envrc resolves
+# from 1Password. Safe to commit either way — references, never values.
+MCP_GITHUB=""
 if [ "$MCP" -eq 1 ]; then
-  write ".mcp.json" "{
-  \"mcpServers\": {
+  MCP_GITHUB=",
     \"github\": {
       \"type\": \"http\",
       \"url\": \"https://api.githubcopilot.com/mcp/\",
       \"headers\": {
         \"Authorization\": \"Bearer \${GITHUB_PERSONAL_ACCESS_TOKEN}\"
       }
-    }
+    }"
+fi
+write ".mcp.json" "{
+  \"mcpServers\": {
+    \"playwright\": {
+      \"command\": \"npx\",
+      \"args\": [\"-y\", \"@playwright/mcp@latest\"]
+    }$MCP_GITHUB
   }
 }"
-fi
 
 # ---------- VS Code ----------
 write ".vscode/settings.json" "{
@@ -203,6 +226,70 @@ write ".vscode/settings.json" "{
   },
   \"ruff.importStrategy\": \"fromEnvironment\"
 }"
+
+# ---------- agent fleet config ----------
+# AGENTS.md is the shared brief (Codex reads it natively); CLAUDE.md imports it so both
+# agents follow one set of rules. Hooks: gitleaks guards `git push`, ruff formats edits.
+write "AGENTS.md" "# $NAME — agent brief
+
+Rules for any coding agent (Claude Code, Codex, …) working in this repo.
+
+## Environment
+- Python is uv-managed: \`uv sync\`, \`uv run <cmd>\`, \`uv add <pkg>\` — never pip or system python.
+- The venv auto-activates via direnv; secrets load from a gitignored \`.env\`
+  (regenerate with \`op inject -i .env.tpl -o .env\`). Never write a secret into code,
+  logs, or a committed file.
+- Git identity, signing key, and GitHub account follow this directory's profile —
+  never set a global git identity; commits are SSH-signed (don't disable signing).
+
+## Commands
+- Run:          \`uv run python main.py\`
+- Tests:        \`uv run pytest\`$([ "$TORCH" -eq 1 ] && printf '\n- GPU check:    `uv run python scripts/verify_gpu.py`  (expects Blackwell sm_120)')$([ "$ML" -eq 1 ] && printf '\n- Tracking:     trackio logs locally; dashboard: `uv run trackio show`')
+- Lint/format:  \`uv run ruff check --fix && uv run ruff format\`  (pre-commit runs these too)"
+
+write "CLAUDE.md" "@AGENTS.md
+
+<!-- Claude-specific notes go below; shared rules live in AGENTS.md. -->"
+
+write ".claude/settings.json" "{
+  \"hooks\": {
+    \"PreToolUse\": [
+      {
+        \"matcher\": \"Bash\",
+        \"hooks\": [{ \"type\": \"command\", \"command\": \"\${CLAUDE_PROJECT_DIR}/.claude/hooks/gitleaks-guard.sh\" }]
+      }
+    ],
+    \"PostToolUse\": [
+      {
+        \"matcher\": \"Edit|Write\",
+        \"hooks\": [{ \"type\": \"command\", \"command\": \"\${CLAUDE_PROJECT_DIR}/.claude/hooks/ruff-fix.sh\" }]
+      }
+    ]
+  }
+}"
+
+write ".claude/hooks/gitleaks-guard.sh" "#!/usr/bin/env bash
+# Claude Code PreToolUse hook: block 'git push' if gitleaks finds a secret.
+# Exit 2 = block the tool call (stderr becomes the agent's feedback).
+set -uo pipefail
+command -v jq >/dev/null 2>&1 && command -v gitleaks >/dev/null 2>&1 || exit 0
+cmd=\"\$(jq -r '.tool_input.command // \"\"' 2>/dev/null)\" || exit 0
+case \"\$cmd\" in *'git push'*) ;; *) exit 0 ;; esac
+if ! gitleaks git --no-banner --redact . >/dev/null 2>&1; then
+  echo 'gitleaks found potential secrets in the commit history — push blocked. Inspect with: gitleaks git .' >&2
+  exit 2
+fi
+exit 0" 755
+
+write ".claude/hooks/ruff-fix.sh" "#!/usr/bin/env bash
+# Claude Code PostToolUse hook: auto-fix + format any Python file the agent edits.
+set -uo pipefail
+command -v jq >/dev/null 2>&1 || exit 0
+f=\"\$(jq -r '.tool_input.file_path // empty' 2>/dev/null)\" || exit 0
+case \"\$f\" in *.py) [ -f \"\$f\" ] || exit 0 ;; *) exit 0 ;; esac
+uv run ruff check --fix \"\$f\" >/dev/null 2>&1
+uv run ruff format \"\$f\" >/dev/null 2>&1
+exit 0" 755
 
 # ---------- pre-commit (local ruff hooks — always match the project's ruff) ----------
 write ".pre-commit-config.yaml" "repos:
@@ -284,6 +371,22 @@ uv run pytest$([ "$PLAYWRIGHT" -eq 1 ] && printf '            # runs the Playwri
 
 PyTorch is pinned to the \`$CUDA\` wheel index in \`pyproject.toml\`."
 
+if [ "$ML" -eq 1 ]; then
+  README_BODY="$README_BODY
+
+## Notebooks & experiment tracking
+- **VS Code:** open any \`.ipynb\` — the kernel is this project's \`.venv\` (ipykernel is in the dev group).
+- **JupyterLab:** \`uv run --with jupyter jupyter lab\` (opens in your Windows browser).
+- **trackio** (local-first, wandb-style API):
+  \`\`\`python
+  import trackio
+  trackio.init(project=\"$PKG\")
+  trackio.log({\"loss\": 0.1})
+  trackio.finish()
+  \`\`\`
+  Dashboard: \`uv run trackio show\`."
+fi
+
 if [ "$MCP" -eq 1 ]; then
   README_BODY="$README_BODY
 
@@ -351,5 +454,6 @@ fi
 hdr "summary"
 ok "project ready in ./$ROOT"
 echo "  ${D}cd '$ROOT'${Z}, then your venv auto-activates via direnv. Edit ${D}.env.tpl${Z} and run ${D}op inject -i .env.tpl -o .env${Z} for secrets."
+echo "  ${D}Agent config: AGENTS.md (shared brief) + CLAUDE.md + .claude/ hooks (gitleaks push-guard, ruff auto-format).${Z}"
 mcp_summary
 echo "  Make your first commit — it'll be signed with this directory's profile and show as Verified on GitHub."

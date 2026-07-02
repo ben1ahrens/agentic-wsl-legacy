@@ -213,7 +213,7 @@ git commit -am "…"                      # signed with the work identity → Ve
 - **SSH auth fails** — confirm `npiperelay.exe` is installed and the 1Password SSH agent is on; check the
   Windows `ssh-agent` service isn't competing for the pipe (verify-setup Section F flags this).
 - **`gh ssh-key add --type signing` scope error** — `gh auth refresh -h github.com -s admin:ssh_signing_key`.
-- **GPU not detected by torch** — `scripts/verify_gpu.py` prints why; cu128 needs a 12.8+ driver (yours reports 12.9).
+- **GPU not detected by torch** — `scripts/verify_gpu.py` prints why; cu130 needs a CUDA 13.x driver (yours reports 13.1).
 
 ## Full tutorial
 
