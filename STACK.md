@@ -94,6 +94,13 @@ inherits the right identity automatically. Don't `git config --global user.email
 - `op` is aliased to **`op.exe`** (the Windows 1Password CLI over interop; unlocks via Windows Hello).
 - SSH **private keys never leave 1Password**; the SSH agent is bridged into WSL (`socat` + `npiperelay.exe`),
   so `git push`/signing work without keys on disk.
+  - **A Windows Hello prompt on *every* push** is 1Password approving **per requesting process**: the
+    bridge (`socat …,fork EXEC:'npiperelay.exe -ei …'`) spawns a fresh, short-lived relay per SSH
+    connection, so each push looks like a new process. First fix (Windows app, no repo change):
+    **Settings → Developer** → SSH-agent approval memory → *"Until 1Password quits"* (not *"…locks"*);
+    **Settings → Security** → relax auto-lock. If it's *still* every push, escalate to a **persistent
+    relay** (one stable Windows process → one prompt per session) in the `git-profiles` block —
+    a settings toggle can't fix a per-connection process.
 - **Patterns (use these; don't reinvent):**
   - `openv` → `op inject` renders a **gitignored** `./.env` from `./.env.tpl`, once per session.
   - `oprun <cmd>` → runs a process with secrets injected, **zero plaintext on disk**.
